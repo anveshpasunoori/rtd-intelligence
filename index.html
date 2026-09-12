@@ -499,6 +499,7 @@ var STATE = (function(){
   return seed;
 })();
 if (!STATE.archives) STATE.archives = [];
+if (!STATE.uploadBatches) STATE.uploadBatches = [];
 if (!STATE.meta.cycleLabel) STATE.meta.cycleLabel = 'FY2026 RTD Cycle';
 var UI = { filters: {}, sort: {}, modal: null, search: '' };
 
@@ -3320,6 +3321,7 @@ function offerDownload(filename, text){
 
 /* ============================= DATA LOAD (ANNUAL UPLOAD) ============================= */
 var DL_PARSED = null;
+var DL_FILENAME = null;
 var DL_DANGER_OPEN = false;
 function viewDataLoad(){
   var html = '<div class="section-title">Annual Data Load</div><div class="section-sub">Upload the year\'s employee extract to refresh the roster — matched and updated by GGID, new GGIDs are added as new cases. Every row is loaded; rows missing information are flagged under RTD Review rather than skipped.</div>';
@@ -3359,7 +3361,19 @@ function viewDataLoad(){
     '</div>';
 
   html += '<div class="card card-pad" style="margin-bottom:16px;">'+
-    '<div class="section-title" style="font-size:14.5px;">3 · Archive & start a new cycle</div>'+
+    '<div class="section-title" style="font-size:14.5px;">3 · Uploaded files this cycle</div>'+
+    '<div class="table-sub" style="margin-bottom:12px;">Every upload committed since the cycle started — remove one to undo it: newly created employees are deleted, and any existing employees it updated are restored to their values from just before that upload.</div>'+
+    (!STATE.uploadBatches.length ? '<div class="empty-state">No uploads yet this cycle.</div>' :
+    '<div class="table-scroll"><table><thead><tr><th>File</th><th>Uploaded</th><th>By</th><th>Rows</th><th></th></tr></thead><tbody>'+
+    STATE.uploadBatches.map(function(b){
+      return '<tr><td class="table-name">'+esc(b.fileName)+'</td><td>'+fmtDateTime(b.uploadedAt)+'</td><td>'+esc(b.uploadedBy)+'</td>'+
+        '<td>'+b.rowCount+' rows · '+b.createdIds.length+' new, '+b.updatedSnapshots.length+' updated</td>'+
+        '<td><button class="btn btn-danger btn-sm" data-remove-batch="'+b.id+'">'+icon('alert',11)+' Remove</button></td></tr>';
+    }).join('')+'</tbody></table></div>')+
+    '</div>';
+
+  html += '<div class="card card-pad" style="margin-bottom:16px;">'+
+    '<div class="section-title" style="font-size:14.5px;">4 · Archive & start a new cycle</div>'+
     '<div class="table-sub" style="margin-bottom:12px;">Snapshots every case, rating, and workflow status as read-only history, then resets the RTD workflow to Step 1 for the new cycle. Do this once the current cycle is fully signed off.</div>'+
     '<div class="field-row"><div class="field"><label>Next cycle label</label><input type="text" id="dl-next-cycle" value="'+esc(nextCycleLabel())+'"/></div>'+
     '<button class="btn btn-danger btn-sm" id="dl-archive">'+icon('audit',12)+' Archive current cycle & start new year</button></div>'+
@@ -3384,6 +3398,7 @@ function viewDataLoad(){
   document.getElementById('dl-file').addEventListener('change', function(ev){
     var file = ev.target.files[0];
     if (!file) return;
+    DL_FILENAME = file.name || 'Uploaded file';
     var isXlsx = /\.xlsx$/i.test(file.name||'');
     var isLegacyXls = /\.xls$/i.test(file.name||'') && !isXlsx;
     if (isLegacyXls){
@@ -3427,6 +3442,21 @@ function viewDataLoad(){
       {label:'Archive & Reset', cls:'btn btn-danger', action:function(){ closeModal(); archiveCurrentCycle(nextLabel); go('archives'); renderApp(); }}
     ]);
   });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-remove-batch]'), function(btn){
+    btn.addEventListener('click', function(){
+      var batchId = btn.getAttribute('data-remove-batch');
+      var batch = STATE.uploadBatches.find(function(b){ return b.id===batchId; });
+      if (!batch) return;
+      openModal('Remove Upload', '<div class="field"><label>Removing "'+esc(batch.fileName)+'" will:</label><div class="reason-list" style="margin-top:8px;">'+
+        '<div class="reason-item">'+icon('alert',13)+'<span>Delete the '+batch.createdIds.length+' employee(s) this upload created, plus their linked accounts, contributions, manager records, and workflow status</span></div>'+
+        '<div class="reason-item">'+icon('alert',13)+'<span>Restore the '+batch.updatedSnapshots.length+' employee(s) this upload updated back to their values from just before it ran</span></div>'+
+        '<div class="reason-item">'+icon('alert',13)+'<span>If a later upload also touched one of those restored employees, this rolls them all the way back to before this upload — undoing that later change too</span></div>'+
+        '</div></div>', [
+        {label:'Cancel', cls:'btn'},
+        {label:'Remove This Upload', cls:'btn btn-danger', action:function(){ closeModal(); removeUploadBatch(batchId); }}
+      ]);
+    });
+  });
   document.getElementById('dl-danger-toggle').addEventListener('click', function(){ DL_DANGER_OPEN = !DL_DANGER_OPEN; viewDataLoad(); });
   var clearAllBtn = document.getElementById('dl-clear-all');
   if (clearAllBtn) clearAllBtn.addEventListener('click', function(){
@@ -3461,6 +3491,7 @@ function removeAllRecords(){
   STATE.contributions = [];
   STATE.managerRecords = [];
   STATE.workflow = {};
+  STATE.uploadBatches = [];
   logAudit('DataLoad', 'employees', count+' records', '0 records', null, 'All Records Removed');
   invalidateCases();
   persist('Removed all '+count+' records');
@@ -3474,6 +3505,7 @@ function factoryReset(){
   STATE.workflow = {};
   STATE.archives = [];
   STATE.auditLog = [];
+  STATE.uploadBatches = [];
   logAudit('DataLoad', 'all data', empCount+' records, '+archCount+' archives', '0', null, 'Factory Reset');
   invalidateCases();
   persist('Deleted all data — factory reset');
@@ -3567,10 +3599,18 @@ function dataLoadIssuesForUpdate(r, existing){
 function commitDataLoad(){
   var existingByGgid = {}; STATE.employees.forEach(function(e){ if (e.ggid) existingByGgid[e.ggid]=e; });
   var updated = 0, created = 0, flagged = 0;
+  // Recorded per upload so a single file/batch can be individually undone later (see Upload
+  // History) — createdIds get fully removed, updatedSnapshots get restored to their exact
+  // pre-upload values. If a later upload touches the same employee again after this one, undoing
+  // THIS batch will still roll all the way back to this snapshot, clobbering that later change too
+  // — there's no per-field multi-version history, just one snapshot per batch per employee.
+  var batchCreatedIds = [];
+  var batchUpdatedSnapshots = [];
   DL_PARSED.forEach(function(r){
     var yesNo = function(v){ return /^y/i.test(v); };
     var existing = r.ggid ? existingByGgid[r.ggid] : null;
     if (existing){
+      batchUpdatedSnapshots.push({ employeeId: existing.id, before: clone(existing) });
       var updateIssues = dataLoadIssuesForUpdate(r, existing);
       if (r.name) existing.name = r.name;
       if (r.email) existing.email = r.email;
@@ -3616,13 +3656,44 @@ function commitDataLoad(){
       });
       if (createIssues.length) flagged++;
       STATE.workflow[id] = { employeeId:id, currentStep:1, status:'In Progress', history:[{step:1, stepName:STATE.stepNames[0], completedBy:'System', completedAt:nowIso(), notes:'Loaded via annual data upload'}] };
+      batchCreatedIds.push(id);
       created++;
     }
+  });
+  STATE.uploadBatches.unshift({
+    id: uid('BATCH'), fileName: DL_FILENAME || 'Uploaded file', uploadedAt: nowIso(), uploadedBy: currentUserName(),
+    rowCount: DL_PARSED.length, createdIds: batchCreatedIds, updatedSnapshots: batchUpdatedSnapshots
   });
   invalidateCases();
   logAudit('Data Load', 'Employees', existingByGgid ? Object.keys(existingByGgid).length+' existing' : '0', updated+' updated, '+created+' created'+(flagged?', '+flagged+' flagged for missing data':''), null, 'Annual Data Upload');
   DL_PARSED = null;
+  DL_FILENAME = null;
   persist('Loaded '+updated+' updates and '+created+' new cases'+(flagged?' — '+flagged+' flagged for missing data (see RTD Review)':''));
+  viewDataLoad();
+}
+/* Reverts exactly one past upload — the ids it created are removed outright (plus their linked
+   accounts/contributions/manager records/workflow, same cleanup as removeAllRecords), and the
+   employees it updated are restored to the pre-upload snapshot taken in commitDataLoad. See the
+   note there on what this can't cleanly undo (a later upload re-touching the same employee). */
+function removeUploadBatch(batchId){
+  var idx = STATE.uploadBatches.findIndex(function(b){ return b.id===batchId; });
+  if (idx<0) return;
+  var batch = STATE.uploadBatches[idx];
+  var createdSet = {}; batch.createdIds.forEach(function(id){ createdSet[id]=true; });
+  STATE.employees = STATE.employees.filter(function(e){ return !createdSet[e.id]; });
+  STATE.accounts = STATE.accounts.filter(function(a){ return !createdSet[a.employeeId]; });
+  STATE.contributions = STATE.contributions.filter(function(c){ return !createdSet[c.employeeId]; });
+  STATE.managerRecords = STATE.managerRecords.filter(function(m){ return !createdSet[m.employeeId]; });
+  batch.createdIds.forEach(function(id){ delete STATE.workflow[id]; });
+  var restored = 0;
+  batch.updatedSnapshots.forEach(function(snap){
+    var i = STATE.employees.findIndex(function(e){ return e.id===snap.employeeId; });
+    if (i>=0){ STATE.employees[i] = snap.before; restored++; }
+  });
+  STATE.uploadBatches.splice(idx, 1);
+  logAudit('Data Load', 'Upload batch', batch.fileName, 'Removed — '+batch.createdIds.length+' deleted, '+restored+' reverted', null, 'Upload Removed');
+  invalidateCases();
+  persist('Removed upload "'+batch.fileName+'" — '+batch.createdIds.length+' deleted, '+restored+' reverted');
   viewDataLoad();
 }
 
@@ -3642,6 +3713,10 @@ function archiveCurrentCycle(nextLabel){
   });
   var prevLabel = STATE.meta.cycleLabel;
   STATE.meta.cycleLabel = nextLabel;
+  // Upload history is scoped to "this cycle" (see the Annual Data Load copy) — the batches that
+  // built the cycle just archived are still fully recoverable inside that archive's own employee
+  // snapshot, they just aren't individually undoable from Annual Data Load once archived.
+  STATE.uploadBatches = [];
   logAudit('Cycle', 'cycleLabel', prevLabel, nextLabel, null, 'New Cycle Started');
   invalidateCases();
   persist('Archived '+prevLabel+' — now in '+nextLabel);
