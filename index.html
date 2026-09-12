@@ -368,6 +368,16 @@
   }
   .toast.show { opacity: 1; transform: translateX(-50%) translateY(-4px); }
 
+  #mode-banner { position: sticky; top: 0; z-index: 40; }
+  #mode-banner[hidden] { display: none; }
+  .mode-banner-inner {
+    display: flex; align-items: center; gap: 10px; padding: 8px 20px;
+    background: var(--warning-soft); color: var(--text-primary); font-size: 12px; border-bottom: 1px solid var(--warning);
+  }
+  .mode-banner-inner svg { color: var(--warning); flex-shrink: 0; }
+  .mode-banner-inner span:first-of-type { flex: 1; }
+  .mode-banner-inner .breadcrumb-link { flex-shrink: 0; }
+
   .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 9px 0; border-bottom: 1px solid var(--border-soft); font-size: 12.8px; }
   .stat-row:last-child { border-bottom: none; }
   .stat-row .k { color: var(--text-secondary); }
@@ -414,9 +424,15 @@
   /* Placed last so it reliably wins the cascade over earlier same-specificity rules like .btn's
      own `display`, regardless of DOM/class order on the toggle button itself. */
   .sidebar-toggle { display: none; }
+  .sidebar-close-btn { display: none; }
   #sidebar-backdrop { display: none; }
   @media (max-width: 900px) {
     .sidebar-toggle { display: inline-flex; }
+    /* The drawer already closes on a backdrop tap, but that's easy to miss — an explicit close
+       button next to the brand is a more discoverable way out once you're done picking filters,
+       without auto-closing on every single filter change (which would fight anyone setting
+       Region then Country then Grade in one pass, since each pick would force reopening it). */
+    .sidebar-close-btn { display: inline-flex; }
     #sidebar {
       position: fixed; left: -272px; top: 0; z-index: 60;
       transition: left 0.22s ease; box-shadow: 0 0 0 transparent;
@@ -439,6 +455,7 @@
 </style>
 </head>
 <body>
+<div id="mode-banner" hidden></div>
 <div id="app">
   <nav id="sidebar"></nav>
   <div id="sidebar-backdrop"></div>
@@ -462,7 +479,25 @@
 var PRISTINE_HTML = document.documentElement.outerHTML;
 
 /* ============================= STATE ============================= */
-var STATE = JSON.parse(document.getElementById('app-state').textContent);
+/* Whether this page is running inside the real Claude Artifact host (so persist() can actually
+   publish changes) or standalone — a local file/static server, or an artifact preview where the
+   viewer can't publish. This is knowable synchronously (window.claude either exists or it
+   doesn't), unlike whether claudeArtifact itself ends up available, which needs the async
+   window.claude.use('artifact') round-trip in initArtifact() below. Used to decide, at boot,
+   whether to resume from this browser's local autosave instead of the seed baked into the page,
+   and, on every persist(), whether to keep writing that autosave. */
+var IN_ARTIFACT_HOST = !!(window.claude && typeof window.claude.use === 'function');
+var LOCAL_STATE_KEY = 'rtd_local_state_v1';
+var STATE = (function(){
+  var seed = JSON.parse(document.getElementById('app-state').textContent);
+  if (!IN_ARTIFACT_HOST){
+    try{
+      var raw = localStorage.getItem(LOCAL_STATE_KEY);
+      if (raw) return JSON.parse(raw);
+    }catch(e){}
+  }
+  return seed;
+})();
 if (!STATE.archives) STATE.archives = [];
 if (!STATE.meta.cycleLabel) STATE.meta.cycleLabel = 'FY2026 RTD Cycle';
 var UI = { filters: {}, sort: {}, modal: null, search: '' };
@@ -517,13 +552,13 @@ function regionForEmployee(e){ return COUNTRY_TO_REGION[e.country] || e.region |
 function loadQuickFilters(){
   try{
     var raw = localStorage.getItem('rtd_quick_filters_v1');
-    if (raw){ var q = JSON.parse(raw); if (q) return {region:q.region||'', country:q.country||'', localGrade:q.localGrade||'', practice:q.practice||''}; }
+    if (raw){ var q = JSON.parse(raw); if (q) return {region:q.region||'', country:q.country||'', localGrade:q.localGrade||'', practice:q.practice||'', year:q.year||''}; }
   }catch(e){}
-  return { region:'', country:'', localGrade:'', practice:'' };
+  return { region:'', country:'', localGrade:'', practice:'', year:'' };
 }
 function saveQuickFilters(){ try{ localStorage.setItem('rtd_quick_filters_v1', JSON.stringify(QF)); }catch(e){} }
 var QF = loadQuickFilters();
-function quickFiltersActive(){ return !!(QF.region || QF.country || QF.localGrade || QF.practice); }
+function quickFiltersActive(){ return !!(QF.region || QF.country || QF.localGrade || QF.practice || QF.year); }
 function matchesQuickFilters(e){
   if (QF.region && regionForEmployee(e) !== QF.region) return false;
   if (QF.country && e.country !== QF.country) return false;
@@ -665,12 +700,35 @@ function icon(name, size){
 /* ============================= PERSISTENCE ============================= */
 var claudeArtifact = null;
 var isSaving = false;
+var ARTIFACT_CHECK_DONE = false;
 function initArtifact(){
   try{
     if (window.claude && typeof window.claude.use === 'function'){
-      window.claude.use('artifact').then(function(a){ claudeArtifact = a; });
+      window.claude.use('artifact').then(function(a){ claudeArtifact = a; ARTIFACT_CHECK_DONE = true; renderModeBanner(); })
+        .catch(function(){ ARTIFACT_CHECK_DONE = true; renderModeBanner(); });
     }
   }catch(e){}
+}
+/* Slim, dismissible-for-the-session notice that this page can't actually publish changes right
+   now, so persist() is falling back to this browser's own localStorage (see LOCAL_STATE_KEY) —
+   without this, "Updated (local preview only)"-style toasts are the only hint, and it's easy to
+   do a afternoon's worth of ratings/overrides and lose all of it on the next reload or in a
+   different browser. Shown instantly when there's no window.claude bridge at all (a local file or
+   plain static server); when the bridge exists but window.claude.use('artifact') hasn't resolved
+   yet, stays hidden until initArtifact's promise settles either way, rather than flashing on then
+   off for the common case where it does resolve. */
+function renderModeBanner(){
+  var el = document.getElementById('mode-banner');
+  if (!el) return;
+  var noPersistence = !IN_ARTIFACT_HOST || (ARTIFACT_CHECK_DONE && !claudeArtifact);
+  if (!noPersistence){ el.innerHTML=''; el.hidden = true; return; }
+  try{ if (sessionStorage.getItem('rtd_mode_banner_dismissed')==='1'){ el.hidden = true; return; } }catch(e){}
+  el.hidden = false;
+  el.innerHTML = '<div class="mode-banner-inner">'+icon('alert',13)+
+    '<span><strong>Local preview —</strong> changes are saved to this browser only, not shared or backed up; a different browser or device starts over from the seed data. Open the published RTD Intelligence artifact to save for real.</span>'+
+    '<span class="breadcrumb-link" id="mode-banner-dismiss">Dismiss</span></div>';
+  var d = document.getElementById('mode-banner-dismiss');
+  if (d) d.addEventListener('click', function(){ try{ sessionStorage.setItem('rtd_mode_banner_dismissed','1'); }catch(e){} el.hidden = true; });
 }
 function showToast(msg){
   var t = document.getElementById('toast');
@@ -696,7 +754,14 @@ function persist(successMsg){
       showToast('Not saved — ' + (err && err.code ? err.code : 'try again'));
     });
   } else {
-    showToast(successMsg ? successMsg + ' (local preview only)' : 'Updated (local preview only)');
+    // Not running inside the real Artifact host (a local file, a plain static server, or an
+    // artifact preview the viewer can't publish to) — nothing above can save this. Keep the
+    // change from vanishing on the next reload by autosaving it to this browser's own
+    // localStorage instead; STATE already reads it back on boot (see IN_ARTIFACT_HOST above).
+    // This is per-browser only: it doesn't sync anywhere and a different browser/profile still
+    // starts from the seed data, which is exactly what the mode banner (renderModeBanner) warns.
+    try{ localStorage.setItem(LOCAL_STATE_KEY, json); }catch(e){}
+    showToast(successMsg ? successMsg + ' (saved to this browser only — see banner)' : 'Updated (saved to this browser only — see banner)');
   }
 }
 function logAudit(entity, field, oldValue, newValue, employeeId, action){
@@ -1311,6 +1376,7 @@ function renderSidebar(){
   var html = '<div class="brand">'+
     '<div class="brand-mark">'+icon('shield',18)+'</div>'+
     '<div class="brand-text"><strong>RTD Intelligence</strong><span>Insurance Practice</span></div>'+
+    '<button class="btn btn-icon sidebar-close-btn" id="sidebar-close-btn" title="Close menu" style="margin-left:auto;">'+icon('x',15)+'</button>'+
     '</div>'+
     sidebarFiltersHtml()+
     '<div class="nav-scroll">';
@@ -1331,6 +1397,7 @@ function renderSidebar(){
   Array.prototype.forEach.call(document.querySelectorAll('[data-nav]'), function(el){
     el.addEventListener('click', function(){ go(el.getAttribute('data-nav')); closeSidebar(); });
   });
+  document.getElementById('sidebar-close-btn').addEventListener('click', closeSidebar);
   bindSidebarFilters();
 }
 function sidebarFiltersHtml(){
@@ -1344,6 +1411,10 @@ function sidebarFiltersHtml(){
     '<select id="sf-country" title="Country"><option value="">Country — All</option>'+(QF.region ? REGION_COUNTRIES[QF.region] : distinctValues('country')).map(function(v){return '<option value="'+esc(v)+'"'+(QF.country===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
     '<select id="sf-localgrade" title="Local Grade"><option value="">Local Grade — All</option>'+distinctValues('localGrade').map(function(v){return '<option value="'+esc(v)+'"'+(QF.localGrade===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
     '<select id="sf-practice" title="Practice"><option value="">Practice — All</option>'+distinctValues('practice').map(function(v){return '<option value="'+esc(v)+'"'+(QF.practice===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
+    (isHR() ? '<select id="sf-year" title="Year">'+
+      '<option value=""'+(!QF.year?' selected':'')+'>Year — '+esc(STATE.meta.cycleLabel)+' (current)</option>'+
+      STATE.archives.map(function(a){ return '<option value="'+esc(a.cycleLabel)+'"'+(QF.year===a.cycleLabel?' selected':'')+'>'+esc(a.cycleLabel)+' (archived)</option>'; }).join('')+
+      '</select>' : '')+
     '</div>';
 }
 function bindSidebarFilters(){
@@ -1351,6 +1422,7 @@ function bindSidebarFilters(){
   var cSel = document.getElementById('sf-country');
   var gSel = document.getElementById('sf-localgrade');
   var pSel = document.getElementById('sf-practice');
+  var ySel = document.getElementById('sf-year');
   if (rSel) rSel.addEventListener('change', function(){
     QF.region = rSel.value;
     // Country is scoped to the selected region's list, so drop a now-out-of-scope Country
@@ -1361,8 +1433,9 @@ function bindSidebarFilters(){
   if (cSel) cSel.addEventListener('change', function(){ QF.country = cSel.value; saveQuickFilters(); renderApp(); });
   if (gSel) gSel.addEventListener('change', function(){ QF.localGrade = gSel.value; saveQuickFilters(); renderApp(); });
   if (pSel) pSel.addEventListener('change', function(){ QF.practice = pSel.value; saveQuickFilters(); renderApp(); });
+  if (ySel) ySel.addEventListener('change', function(){ QF.year = ySel.value; saveQuickFilters(); renderApp(); });
   var clearLink = document.getElementById('sf-clear');
-  if (clearLink) clearLink.addEventListener('click', function(){ QF = {region:'', country:'', localGrade:'', practice:''}; saveQuickFilters(); renderApp(); });
+  if (clearLink) clearLink.addEventListener('click', function(){ QF = {region:'', country:'', localGrade:'', practice:'', year:''}; saveQuickFilters(); renderApp(); });
 }
 function scopeSummaryText(){
   return isHR() ? 'Full access · all sections' : 'Standard access';
@@ -1461,7 +1534,12 @@ function renderTopbar(sub){
     if (ev.key==='Enter' && UI.search.trim()){
       var q = UI.search.trim().toLowerCase();
       var hit = STATE.employees.find(function(e){ return e.name.toLowerCase().indexOf(q)>=0 || e.ggid.toLowerCase().indexOf(q)>=0; });
-      if (hit) go('dossiers/'+hit.id);
+      if (hit){ go('dossiers/'+hit.id); return; }
+      // Placeholder promises "name, GGID, practice" — a practice match is many people, not one,
+      // so land on RTD Review filtered to it (its table already searches practice too) rather
+      // than guessing a single dossier to jump to.
+      var practiceHit = STATE.employees.some(function(e){ return e.practice.toLowerCase().indexOf(q)>=0; });
+      if (practiceHit) go('dash-rtd');
     }
   });
 }
@@ -1554,10 +1632,19 @@ function viewExecutiveDashboard(){
     '</div>';
   html += '</div>';
 
+  // The KPI tile above always reflects the true at-risk count under the current Quick Filters —
+  // the search box is a "find this person" tool, not a population-redefining filter, so it only
+  // narrows which of those flagged rows are actually listed below, same as it narrows rows on RTD
+  // Review and Promotions rather than changing their headline numbers.
+  var riskSearchQ = UI.search.trim().toLowerCase();
+  var atRiskShown = atRisk;
+  if (riskSearchQ) atRiskShown = atRisk.filter(function(c){ return c.employee.name.toLowerCase().indexOf(riskSearchQ)>=0 || c.employee.ggid.toLowerCase().indexOf(riskSearchQ)>=0 || c.employee.practice.toLowerCase().indexOf(riskSearchQ)>=0; });
   html += '<div class="card card-pad" style="margin-top:16px;">'+
-    '<div class="section-title">Cases flagged for risk</div><div class="section-sub">Surfaced automatically by the rules engine — review before RTD</div>'+
-    riskTable(atRisk.slice(0,8))+
-    (atRisk.length>8?'<div style="margin-top:10px;"><span class="breadcrumb-link" data-go-risk="1">View all '+atRisk.length+' flagged cases →</span></div>':'')+
+    '<div class="section-title">Cases flagged for risk</div><div class="section-sub">'+
+    (riskSearchQ ? atRiskShown.length+' of '+atRisk.length+' flagged cases match "'+esc(UI.search.trim())+'"' : 'Surfaced automatically by the rules engine — review before RTD')+
+    '</div>'+
+    riskTable(atRiskShown.slice(0,8))+
+    (atRiskShown.length>8?'<div style="margin-top:10px;"><span class="breadcrumb-link" data-go-risk="1">View all '+atRisk.length+' flagged cases →</span></div>':'')+
     '</div>';
 
   document.getElementById('view').innerHTML = html;
@@ -1706,6 +1793,9 @@ function viewPromotionDashboard(){
     return String(c.employee[k])===String(f[k]);
   });});
   candidates.sort(function(a,b){ return RATING_RANK[b.rating.finalRating]-RATING_RANK[a.rating.finalRating]; });
+  var candidatesBeforeSearch = candidates.length;
+  var searchQ = UI.search.trim().toLowerCase();
+  if (searchQ) candidates = candidates.filter(function(c){ return c.employee.name.toLowerCase().indexOf(searchQ)>=0 || c.employee.ggid.toLowerCase().indexOf(searchQ)>=0 || c.employee.practice.toLowerCase().indexOf(searchQ)>=0; });
 
   var html = '<div class="kpi-grid">'+
     kpiTile('Promotion Recommendations', funnel[0].value, icon('award',14))+
@@ -1719,7 +1809,9 @@ function viewPromotionDashboard(){
 
   html += '<div style="margin-top:16px;">'+renderQuotaCompliancePanel(cases)+'</div>';
 
-  html += '<div style="margin-top:18px;" class="section-title">Promotion candidates</div><div class="section-sub">'+candidates.length+' cases with a recommendation or a non-blocking eligibility status</div>';
+  html += '<div style="margin-top:18px;" class="section-title">Promotion candidates</div><div class="section-sub">'+
+    (searchQ ? candidates.length+' of '+candidatesBeforeSearch+' cases match "'+esc(UI.search.trim())+'"' : candidates.length+' cases with a recommendation or a non-blocking eligibility status')+
+    '</div>';
   html += filterBar([{field:'region',label:'Region'},{field:'practice',label:'Practice'},{field:'globalGrade',label:'Grade'},{field:'eligibility',label:'Eligibility',options:['Eligible','Eligible With Exception','Not Eligible']}],'promo');
 
   html += '<div class="card table-scroll"><table><thead><tr><th>Employee</th><th>Grade</th><th>Practice</th><th>Readiness</th><th>Rating</th><th>Eligibility</th><th>Reason codes</th><th></th></tr></thead><tbody>'+
@@ -3228,12 +3320,29 @@ function offerDownload(filename, text){
 
 /* ============================= DATA LOAD (ANNUAL UPLOAD) ============================= */
 var DL_PARSED = null;
+var DL_DANGER_OPEN = false;
 function viewDataLoad(){
   var html = '<div class="section-title">Annual Data Load</div><div class="section-sub">Upload the year\'s employee extract to refresh the roster — matched and updated by GGID, new GGIDs are added as new cases. Every row is loaded; rows missing information are flagged under RTD Review rather than skipped.</div>';
 
   html += '<div class="card card-pad" style="margin-bottom:16px;"><div class="grid-3">'+
     stat('Active Cycle', esc(STATE.meta.cycleLabel))+stat('Employees Loaded', STATE.employees.length)+stat('Last Updated', fmtDate(STATE.meta.lastUpdated))+
     '</div></div>';
+
+  html += '<div class="card card-pad" style="margin-bottom:16px;'+(DL_DANGER_OPEN?'border-color:var(--critical);':'')+'">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">'+
+    '<div><div class="section-title" style="font-size:14.5px;">Danger zone</div>'+
+    (DL_DANGER_OPEN?'':'<div class="table-sub">Bulk-remove or wipe the active cycle\'s data — collapsed by default so it\'s out of the way during a routine upload.</div>')+
+    '</div>'+
+    '<span class="breadcrumb-link" id="dl-danger-toggle">'+(DL_DANGER_OPEN?'Hide':'Show')+'</span>'+
+    '</div>'+
+    (DL_DANGER_OPEN ? (
+    '<div class="table-sub" style="margin:12px 0 12px;">Permanently remove every employee record, account, contribution, and workflow status from the active cycle — for example to clear out test/mock data before a real load. This is not archived and cannot be undone; the audit log and any past Archives entries are kept.</div>'+
+    '<button class="btn btn-danger btn-sm" id="dl-clear-all" style="margin-bottom:14px;">'+icon('alert',12)+' Remove all records ('+STATE.employees.length+')</button>'+
+    '<hr class="divider" style="margin:0 0 14px 0;"/>'+
+    '<div class="table-sub" style="margin-bottom:12px;"><strong style="color:var(--critical);">Factory reset:</strong> everything above, plus every archived cycle ('+STATE.archives.length+') and the entire audit log ('+STATE.auditLog.length+' entries) — a full wipe back to a blank app. Cannot be undone.</div>'+
+    '<button class="btn btn-danger btn-sm" id="dl-factory-reset">'+icon('alert',12)+' Delete all data (factory reset)</button>'
+    ) : '')+
+    '</div>';
 
   html += '<div class="card card-pad" style="margin-bottom:16px;">'+
     '<div class="section-title" style="font-size:14.5px;">1 · Get the template</div>'+
@@ -3249,7 +3358,7 @@ function viewDataLoad(){
     '<div id="dl-preview" style="margin-top:14px;"></div>'+
     '</div>';
 
-  html += '<div class="card card-pad">'+
+  html += '<div class="card card-pad" style="margin-bottom:16px;">'+
     '<div class="section-title" style="font-size:14.5px;">3 · Archive & start a new cycle</div>'+
     '<div class="table-sub" style="margin-bottom:12px;">Snapshots every case, rating, and workflow status as read-only history, then resets the RTD workflow to Step 1 for the new cycle. Do this once the current cycle is fully signed off.</div>'+
     '<div class="field-row"><div class="field"><label>Next cycle label</label><input type="text" id="dl-next-cycle" value="'+esc(nextCycleLabel())+'"/></div>'+
@@ -3318,6 +3427,56 @@ function viewDataLoad(){
       {label:'Archive & Reset', cls:'btn btn-danger', action:function(){ closeModal(); archiveCurrentCycle(nextLabel); go('archives'); renderApp(); }}
     ]);
   });
+  document.getElementById('dl-danger-toggle').addEventListener('click', function(){ DL_DANGER_OPEN = !DL_DANGER_OPEN; viewDataLoad(); });
+  var clearAllBtn = document.getElementById('dl-clear-all');
+  if (clearAllBtn) clearAllBtn.addEventListener('click', function(){
+    var count = STATE.employees.length;
+    openModal('Remove All Records', '<div class="field"><label>This will permanently, immediately:</label><div class="reason-list" style="margin-top:8px;">'+
+      '<div class="reason-item">'+icon('alert',13)+'<span>Delete all '+count+' employee records in the active cycle, plus their linked accounts, contributions, manager records, and workflow status</span></div>'+
+      '<div class="reason-item">'+icon('alert',13)+'<span>This is <strong>not</strong> archived — unlike "Archive & start a new cycle," nothing is snapshotted first</span></div>'+
+      '<div class="reason-item">'+icon('check',13)+'<span>The audit log and any existing Archives entries are kept</span></div>'+
+      '</div></div>', [
+      {label:'Cancel', cls:'btn'},
+      {label:'Remove All '+count+' Records', cls:'btn btn-danger', action:function(){ closeModal(); removeAllRecords(); renderApp(); }}
+    ]);
+  });
+  var factoryResetBtn = document.getElementById('dl-factory-reset');
+  if (factoryResetBtn) factoryResetBtn.addEventListener('click', function(){
+    var empCount = STATE.employees.length, archCount = STATE.archives.length, auditCount = STATE.auditLog.length;
+    openModal('Delete All Data', '<div class="field"><label>This will permanently, immediately wipe everything:</label><div class="reason-list" style="margin-top:8px;">'+
+      '<div class="reason-item">'+icon('alert',13)+'<span>All '+empCount+' employee records in the active cycle, plus their linked accounts, contributions, manager records, and workflow status</span></div>'+
+      '<div class="reason-item">'+icon('alert',13)+'<span>All '+archCount+' archived cycle(s) — unlike "Remove all records," archived history is <strong>not</strong> kept</span></div>'+
+      '<div class="reason-item">'+icon('alert',13)+'<span>The entire audit log ('+auditCount+' entries) — including the record of this reset itself, once it scrolls past</span></div>'+
+      '<div class="reason-item">'+icon('alert',13)+'<span>There is no undo and nothing is exported first — download a CSV export or archive first if you want to keep any of this</span></div>'+
+      '</div></div>', [
+      {label:'Cancel', cls:'btn'},
+      {label:'Delete Everything', cls:'btn btn-danger', action:function(){ closeModal(); factoryReset(); go('dataload'); renderApp(); }}
+    ]);
+  });
+}
+function removeAllRecords(){
+  var count = STATE.employees.length;
+  STATE.employees = [];
+  STATE.accounts = [];
+  STATE.contributions = [];
+  STATE.managerRecords = [];
+  STATE.workflow = {};
+  logAudit('DataLoad', 'employees', count+' records', '0 records', null, 'All Records Removed');
+  invalidateCases();
+  persist('Removed all '+count+' records');
+}
+function factoryReset(){
+  var empCount = STATE.employees.length, archCount = STATE.archives.length;
+  STATE.employees = [];
+  STATE.accounts = [];
+  STATE.contributions = [];
+  STATE.managerRecords = [];
+  STATE.workflow = {};
+  STATE.archives = [];
+  STATE.auditLog = [];
+  logAudit('DataLoad', 'all data', empCount+' records, '+archCount+' archives', '0', null, 'Factory Reset');
+  invalidateCases();
+  persist('Deleted all data — factory reset');
 }
 function loadXlsxFile(file){
   if (!xlsxSupported()){
@@ -3470,7 +3629,7 @@ function commitDataLoad(){
 function archiveCurrentCycle(nextLabel){
   var snapshot = {
     cases: allCases().map(function(c){ return { employeeId:c.employee.id, name:c.employee.name, ggid:c.employee.ggid, region:c.employee.region,
-      practice:c.employee.practice, globalGrade:c.employee.globalGrade, localGrade:c.employee.localGrade, finalRating:c.rating.finalRating,
+      country:c.employee.country, practice:c.employee.practice, globalGrade:c.employee.globalGrade, localGrade:c.employee.localGrade, finalRating:c.rating.finalRating,
       eligibilityStatus:c.eligibility.status, promotionRecommendation:c.employee.promotionRecommendation }; }),
     employees: clone(STATE.employees), accounts: clone(STATE.accounts), contributions: clone(STATE.contributions),
     managerRecords: clone(STATE.managerRecords), rules: clone(STATE.rules)
@@ -3519,6 +3678,73 @@ function viewArchiveDetail(archiveId){
   document.getElementById('view').innerHTML = html;
   bindGoLinks();
 }
+/* Reached when the sidebar's Year quick filter is set to a past (archived) cycle instead of the
+   current one — shown in place of whatever dashboard is selected, since a historical cycle's
+   snapshot only has this flat case summary, not the full live employee/account/workflow detail
+   the dashboards render. Region/Country/Local Grade/Practice quick filters still apply, since the
+   archived case objects carry those same fields (see archiveCurrentCycle). */
+function viewYearSnapshot(cycleLabel){
+  var a = STATE.archives.find(function(x){ return x.cycleLabel===cycleLabel; });
+  if (!a){ QF.year=''; saveQuickFilters(); renderApp(); return; }
+  var cases = a.snapshot.cases.filter(matchesQuickFilters);
+  var html = '<div class="card card-pad" style="margin-bottom:16px;background:var(--accent-soft);border-color:var(--accent);">'+
+    '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">'+
+    '<div><div style="font-weight:700;font-family:var(--font-display);font-size:14.5px;">Viewing '+esc(a.cycleLabel)+' — read-only</div>'+
+    '<div class="table-sub">Archived '+fmtDateTime(a.archivedAt)+' by '+esc(a.archivedBy)+'. This is a historical snapshot; ratings, eligibility, and workflow can\'t be edited here.</div></div>'+
+    '<button class="btn btn-sm" id="ys-back">'+icon('grid',12)+' Back to '+esc(STATE.meta.cycleLabel)+'</button>'+
+    '</div></div>';
+  html += '<div class="card card-pad" style="margin-bottom:16px;"><div class="grid-3">'+
+    stat('Cases in view', cases.length)+stat('Total Archived', a.snapshot.cases.length)+stat('Cycle', esc(a.cycleLabel))+'</div></div>';
+
+  // The actual "year-over-year comparison" the Archives page promises: the same rating-distribution
+  // and eligibility charts Executive shows for the live cycle, computed for the archived cycle AND
+  // for the live one side by side (both under the same Region/Country/Grade/Practice quick filters
+  // — everything except Year, so it's a fair like-for-like comparison, not the archive vs. an
+  // unrelated unfiltered population).
+  if (cases.length){
+    var archRatingCounts = {}; RATINGS.forEach(function(r){archRatingCounts[r]=0;});
+    cases.forEach(function(c){ archRatingCounts[c.finalRating]=(archRatingCounts[c.finalRating]||0)+1; });
+    var archEligCounts = {'Eligible':0,'Eligible With Exception':0,'Not Eligible':0};
+    cases.forEach(function(c){ archEligCounts[c.eligibilityStatus]=(archEligCounts[c.eligibilityStatus]||0)+1; });
+
+    var liveCases = scopedCases();
+    var liveRatingCounts = {}; RATINGS.forEach(function(r){liveRatingCounts[r]=0;});
+    liveCases.forEach(function(c){ liveRatingCounts[c.rating.finalRating]++; });
+    var liveEligCounts = {'Eligible':0,'Eligible With Exception':0,'Not Eligible':0};
+    liveCases.forEach(function(c){ liveEligCounts[c.eligibility.status]++; });
+
+    var ratingColors = ['var(--critical)','var(--warning)','var(--success)','var(--special)'];
+    var eligData = function(counts){ return [{label:'Eligible',value:counts['Eligible'],color:'var(--success)'},{label:'Eligible With Exception',value:counts['Eligible With Exception'],color:'var(--warning)'},{label:'Not Eligible',value:counts['Not Eligible'],color:'var(--critical)'}]; };
+
+    html += '<div class="section-title" style="margin-top:4px;">'+esc(a.cycleLabel)+' vs. '+esc(STATE.meta.cycleLabel)+'</div>'+
+      '<div class="section-sub">Same Region/Country/Grade/Practice quick filters applied to both — Year itself is the only difference</div>';
+    html += '<div class="grid-2" style="margin-bottom:16px;">';
+    html += '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Rating distribution — '+esc(a.cycleLabel)+' ('+cases.length+')</div>'+
+      svgBarChart(RATINGS.map(function(r,i){return {label:r, value:archRatingCounts[r], color:ratingColors[i]};}), {height:180})+'</div>';
+    html += '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Rating distribution — '+esc(STATE.meta.cycleLabel)+' ('+liveCases.length+')</div>'+
+      svgBarChart(RATINGS.map(function(r,i){return {label:r, value:liveRatingCounts[r], color:ratingColors[i]};}), {height:180})+'</div>';
+    html += '</div>';
+    html += '<div class="grid-2" style="margin-bottom:16px;">';
+    html += '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Eligibility — '+esc(a.cycleLabel)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:20px;">'+svgDonut(eligData(archEligCounts))+legendRow(eligData(archEligCounts))+'</div></div>';
+    html += '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Eligibility — '+esc(STATE.meta.cycleLabel)+'</div>'+
+      '<div style="display:flex;align-items:center;gap:20px;">'+svgDonut(eligData(liveEligCounts))+legendRow(eligData(liveEligCounts))+'</div></div>';
+    html += '</div>';
+  }
+
+  if (!cases.length){
+    html += '<div class="empty-state">No archived cases match the current quick filters.</div>';
+  } else {
+    html += '<div class="card table-scroll"><table><thead><tr><th>Employee</th><th>Grade</th><th>Practice</th><th>Region</th><th>Country</th><th>Final Rating</th><th>Eligibility</th></tr></thead><tbody>'+
+      cases.map(function(c){
+        return '<tr><td class="table-name">'+esc(c.name)+'</td><td>'+esc(c.globalGrade)+' ('+esc(c.localGrade)+')</td><td>'+esc(c.practice)+'</td><td>'+esc(c.region)+'</td><td>'+esc(c.country||'—')+'</td>'+
+        '<td>'+pill(c.finalRating, ratingPillClass(c.finalRating))+'</td><td>'+pill(c.eligibilityStatus, eligPillClass(c.eligibilityStatus))+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  }
+  document.getElementById('view').innerHTML = html;
+  var back = document.getElementById('ys-back');
+  if (back) back.addEventListener('click', function(){ QF.year=''; saveQuickFilters(); renderApp(); });
+}
 
 /* ============================= ROUTER / BOOT ============================= */
 function viewAccessRestricted(msg){
@@ -3538,6 +3764,18 @@ function renderApp(){
   if (ROUTE_HR[top] && !isHR()){
     renderTopbar();
     viewAccessRestricted('This section is available to HR Admin only. Open Account in the upper-right corner to sign in as an HR Admin.');
+    window.scrollTo(0,0);
+    return;
+  }
+  // Year quick filter set to a past cycle: the four dashboards below assume the live, editable
+  // roster, so a selected archive replaces whichever dashboard is active with its read-only
+  // snapshot instead. Other routes (Data Load, Admin, Account, Archives itself, ...) don't use
+  // quick filters at all and are unaffected. HR-gated same as Archives, since this surfaces the
+  // same historical data.
+  var DASH_ROUTES = ['dash-exec','dash-rtd','dash-promo','dash-calib'];
+  if (QF.year && QF.year!==STATE.meta.cycleLabel && isHR() && DASH_ROUTES.indexOf(top)>=0){
+    renderTopbar('Historical snapshot');
+    viewYearSnapshot(QF.year);
     window.scrollTo(0,0);
     return;
   }
@@ -3584,6 +3822,7 @@ restoreUiStateIfEmpty();
 window.addEventListener('hashchange', renderApp);
 initArtifact();
 initDownloads();
+renderModeBanner();
 renderApp();
 
 })();
