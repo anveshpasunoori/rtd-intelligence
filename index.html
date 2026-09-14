@@ -1576,30 +1576,53 @@ function distinctValues(field){
   var s = {}; STATE.employees.forEach(function(e){ s[e[field]] = true; });
   return Object.keys(s).sort();
 }
+/* Region / Local Grade / Practice also exist as sidebar Quick Filters (QF, shared across every
+   page). A page's own filter bar can offer them too for convenience, but that selection needs to
+   BE the same shared QF value — not a second, page-local copy — or picking one on, say, RTD Review
+   silently stops applying the moment you navigate to Executive/Promotions/Calibration, even though
+   those all already scope their data through QF. Everything else in a filter bar (Rating, People
+   Manager, Contribution Type, ...) has no sidebar equivalent and stays page-local as before. */
+var GLOBAL_FILTER_FIELDS = {region:1, localGrade:1, practice:1};
 function filterBar(fields, storeKey){
   var f = UI.filters[storeKey] = UI.filters[storeKey] || {};
   var html = '<div class="filter-bar">';
   fields.forEach(function(fld){
     var vals = fld.options || distinctValues(fld.field);
     var labelFor = fld.labelFor || function(v){ return v; };
+    var current = GLOBAL_FILTER_FIELDS[fld.field] ? QF[fld.field] : f[fld.field];
     html += '<select data-filter="'+fld.field+'" data-store="'+storeKey+'"><option value="">'+fld.label+' — All</option>'+
-      vals.map(function(v){ return '<option value="'+esc(v)+'"'+(f[fld.field]===v?' selected':'')+'>'+esc(labelFor(v))+'</option>'; }).join('')+
+      vals.map(function(v){ return '<option value="'+esc(v)+'"'+(current===v?' selected':'')+'>'+esc(labelFor(v))+'</option>'; }).join('')+
       '</select>';
   });
   html += '<button class="btn btn-sm" id="clear-filters-'+storeKey+'">Clear filters</button></div>';
   return html;
 }
 function bindFilterBar(storeKey, onChange){
-  Array.prototype.forEach.call(document.querySelectorAll('[data-store="'+storeKey+'"]'), function(sel){
+  var selects = document.querySelectorAll('[data-store="'+storeKey+'"]');
+  Array.prototype.forEach.call(selects, function(sel){
     sel.addEventListener('change', function(){
-      var f = UI.filters[storeKey] = UI.filters[storeKey]||{};
       var field = sel.getAttribute('data-filter');
-      if (sel.value) f[field] = sel.value; else delete f[field];
-      onChange();
+      if (GLOBAL_FILTER_FIELDS[field]){
+        QF[field] = sel.value || '';
+        saveQuickFilters();
+        renderApp(); // keeps the sidebar's own copy of this same filter in sync, not just this page
+      } else {
+        var f = UI.filters[storeKey] = UI.filters[storeKey]||{};
+        if (sel.value) f[field] = sel.value; else delete f[field];
+        onChange();
+      }
     });
   });
   var clearBtn = document.getElementById('clear-filters-'+storeKey);
-  if (clearBtn) clearBtn.addEventListener('click', function(){ UI.filters[storeKey] = {}; onChange(); });
+  if (clearBtn) clearBtn.addEventListener('click', function(){
+    UI.filters[storeKey] = {};
+    var touchedGlobal = false;
+    Array.prototype.forEach.call(selects, function(sel){
+      var field = sel.getAttribute('data-filter');
+      if (GLOBAL_FILTER_FIELDS[field]){ QF[field] = ''; touchedGlobal = true; }
+    });
+    if (touchedGlobal){ saveQuickFilters(); renderApp(); } else { onChange(); }
+  });
 }
 function applyEmployeeFilters(list, storeKey){
   var f = UI.filters[storeKey] || {};
