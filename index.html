@@ -1436,6 +1436,7 @@ var ADMIN_TABS = [
   ['geo','Region Types & Regions'], ['roles','Roles & Grade Titles'], ['practice','Practices & Sub-Practices'],
   ['contrib','Contribution Categories'], ['rules','Rules Engine'], ['ld','L&D Hour Requirements'],
   ['quotas','Rating & Promotion Quotas'], ['mgr','Manager Config'], ['users','Users & Permissions'],
+  ['import','Import Admin Data'],
 ];
 function adminTabLabel(key){ var t = ADMIN_TABS.find(function(x){return x[0]===key;}); return t ? t[1] : null; }
 /* 'dossiers' has no sidebar entry (the standalone list page was removed), but the dossier DETAIL
@@ -3137,6 +3138,8 @@ function viewAdmin(sub){
   document.getElementById('view').innerHTML = html;
   if (tab==='rules'){
     viewRulesEngine('admin-tab-content');
+  } else if (tab==='import'){
+    viewAdminImport();
   } else {
     document.getElementById('admin-tab-content').innerHTML = renderAdminTab(tab);
     bindAdminEvents();
@@ -3235,6 +3238,101 @@ function adminMgrEditor(){
     '<div class="field" style="margin-top:12px;"><label>Career conversation due date</label><input type="date" id="mgr-career-due" value="'+cfg.careerConversationDueDate+'"/></div>'+
     '<button class="btn btn-primary btn-sm" id="save-mgr-cfg" style="margin-top:16px;">Save</button></div>';
 }
+
+/* ============================= ADMIN BULK IMPORT (XLSX) =============================
+   One workbook, one named sheet tab per admin category — same "reference change only, no employee
+   record touched" rule as the individual reference-list editors above. A sheet not present in the
+   workbook leaves that category untouched; a sheet that IS present fully replaces it (simple,
+   predictable — no per-row merge semantics to reason about). Sheet names are matched
+   case/space/punctuation-insensitively, same normalization as gradeOrder()'s siblings. */
+var ADMIN_IMPORT_SHEETS = {
+  regiontypes: { label:'Region Types', build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.regionTypes = v; } },
+  regions: { label:'Regions', build:function(rows){ return rows.map(function(r){ return {name:r.name||'', regionType:r.regionType||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.regions = v; } },
+  roles: { label:'Roles / Local Grade Titles', build:function(rows){ return rows.map(function(r){ return {name:r.name||'', globalGrade:r.globalGrade||'', localGrade:r.localGrade||'', region:r.region||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.localGrades = v; } },
+  practices: { label:'Practices', build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.practices = v; } },
+  subpractices: { label:'Sub-Practices', build:function(rows){ return rows.map(function(r){ return {name:r.name||'', practice:r.practice||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.subPractices = v; } },
+  contributioncategories: { label:'Contribution Categories', build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.contributionCategories = v; } },
+  quotas: { label:'Rating & Promotion Quotas', build:function(rows){
+      var num = function(v){ return (v==null||v==='') ? null : (parseInt(v,10)||0); };
+      var out = {};
+      rows.forEach(function(r){ if (!r.localGrade) return; out[r.localGrade] = { promotions:num(r.promotions), 'Needs Improvement':num(r.needsImprovement), 'Succeeding':num(r.succeeding), 'Exceeding':num(r.exceeding), 'Exceptional':num(r.exceptional) }; });
+      return out;
+    }, apply:function(v){ STATE.quotaConfig = v; }, count:function(v){ return Object.keys(v).length; } },
+  ldhours: { label:'L&D Hour Requirements', build:function(rows){
+      var out = {};
+      rows.forEach(function(r){
+        if (!r.country || !r.practice || !r.localGrade) return;
+        out[r.country] = out[r.country] || {};
+        out[r.country][r.practice] = out[r.country][r.practice] || {};
+        out[r.country][r.practice][r.localGrade] = parseInt(r.hours,10)||0;
+      });
+      return out;
+    }, apply:function(v){ STATE.ldHoursConfig = v; } },
+};
+function adminImportSheetKey(sheetName){ return String(sheetName||'').trim().toLowerCase().replace(/[^a-z0-9]/g,''); }
+var ADMIN_IMPORT_PARSED = null;
+var ADMIN_IMPORT_FILENAME = null;
+function viewAdminImport(){
+  var html = '<div class="section-sub" style="margin-bottom:10px;">Upload one Excel workbook to bulk-replace admin reference data — put each category on its own named sheet tab (case-insensitive, spacing doesn\'t matter): <strong>Region Types</strong> (name), <strong>Regions</strong> (name, regionType), <strong>Roles</strong> (name, globalGrade, localGrade, region), <strong>Practices</strong> (name), <strong>Sub Practices</strong> (name, practice), <strong>Contribution Categories</strong> (name), <strong>Quotas</strong> (localGrade, promotions, needsImprovement, succeeding, exceeding, exceptional), <strong>LD Hours</strong> (country, practice, localGrade, hours). Only sheets present in the workbook are replaced — leave a tab out to leave that category as-is.</div>'+
+    '<div class="card card-pad"><input type="file" id="admin-import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="font-size:12.5px;"/>'+
+    '<div id="admin-import-preview" style="margin-top:14px;"></div></div>';
+  document.getElementById('admin-tab-content').innerHTML = html;
+  ADMIN_IMPORT_PARSED = null;
+  var fileInput = document.getElementById('admin-import-file');
+  fileInput.addEventListener('change', function(){
+    var file = fileInput.files[0];
+    if (!file) return;
+    if (!xlsxSupported()){ renderAdminImportPreview('excel-error', 'Your browser doesn\'t support in-browser Excel decompression. Try updating your browser.'); return; }
+    ADMIN_IMPORT_FILENAME = file.name;
+    renderAdminImportPreview('loading');
+    file.arrayBuffer().then(function(buf){ return parseXlsxWorkbookAllSheets(buf); }).then(function(sheets){
+      ADMIN_IMPORT_PARSED = sheets;
+      renderAdminImportPreview();
+    }).catch(function(err){ renderAdminImportPreview('excel-error', (err && err.message) ? err.message : String(err)); });
+  });
+}
+function renderAdminImportPreview(mode, detail){
+  var el = document.getElementById('admin-import-preview');
+  if (!el) return;
+  if (mode==='loading'){ el.innerHTML = '<div class="table-sub">Reading workbook — entirely in your browser, nothing is uploaded anywhere…</div>'; return; }
+  if (mode==='excel-error'){
+    el.innerHTML = '<div class="card card-pad" style="background:var(--critical-soft);border-color:var(--critical);">'+
+      '<div style="display:flex;gap:10px;align-items:flex-start;">'+icon('alert',16)+
+      '<div><div style="font-weight:700;font-size:13px;margin-bottom:4px;color:var(--text-primary);">Couldn\'t read that Excel file</div>'+
+      '<div class="table-sub">'+esc(detail||'The file may be corrupted, password-protected, or in an unexpected format.')+'</div></div></div></div>';
+    return;
+  }
+  if (!ADMIN_IMPORT_PARSED) return;
+  var bySheetKey = {};
+  Object.keys(ADMIN_IMPORT_PARSED).forEach(function(name){ bySheetKey[adminImportSheetKey(name)] = { sheetName:name, rows:ADMIN_IMPORT_PARSED[name] }; });
+  var recognized = Object.keys(ADMIN_IMPORT_SHEETS).filter(function(key){ return bySheetKey[key]; });
+  if (!recognized.length){ el.innerHTML = '<div class="table-sub">No recognized sheet tabs found in that workbook — check the tab names match one of the categories listed above.</div>'; return; }
+  el.innerHTML = '<div class="reason-list" style="margin-bottom:12px;">'+recognized.map(function(key){
+    var found = bySheetKey[key];
+    return '<div class="reason-item">'+icon('check',13)+'<span>"'+esc(found.sheetName)+'" — '+found.rows.length+' row(s) will replace <strong>'+esc(ADMIN_IMPORT_SHEETS[key].label)+'</strong></span></div>';
+  }).join('')+'</div>'+
+  '<button class="btn btn-primary btn-sm" id="admin-import-commit">'+icon('check',12)+' Commit import</button>';
+  document.getElementById('admin-import-commit').addEventListener('click', commitAdminImport);
+}
+function commitAdminImport(){
+  var bySheetKey = {};
+  Object.keys(ADMIN_IMPORT_PARSED).forEach(function(name){ bySheetKey[adminImportSheetKey(name)] = ADMIN_IMPORT_PARSED[name]; });
+  var summary = [];
+  Object.keys(ADMIN_IMPORT_SHEETS).forEach(function(key){
+    if (!bySheetKey[key]) return;
+    var spec = ADMIN_IMPORT_SHEETS[key];
+    var built = spec.build(bySheetKey[key]);
+    spec.apply(built);
+    var count = spec.count ? spec.count(built) : built.length;
+    summary.push(spec.label+': '+count);
+  });
+  invalidateCases();
+  logAudit('Administration', 'Bulk Import', '—', summary.join(' · '), null, 'Admin Data Imported ('+(ADMIN_IMPORT_FILENAME||'file')+')');
+  ADMIN_IMPORT_PARSED = null;
+  persist('Admin data imported — '+summary.join(', '));
+  viewAdmin(currentAdminTab());
+}
+
 /* Which Administration page is currently open, read back off the URL — used to re-render the
    same page in place after a mutation instead of bouncing back to the first page. */
 function currentAdminTab(){
@@ -3583,6 +3681,80 @@ async function parseXlsxWorkbook(arrayBuffer){
     });
     return o;
   });
+}
+
+/* Lists every worksheet in the workbook as {name, path} — used by the Administration bulk import
+   below, which needs to find a sheet by its tab name (e.g. "Regions") rather than assuming it's the
+   first one, unlike parseXlsxWorkbook (the Annual Data Load employee template always uses sheet 1). */
+async function xlsxLocateAllSheets(zip){
+  var wbBytes = await xlsxReadEntry(zip, 'xl/workbook.xml');
+  if (!wbBytes) return [];
+  var dec = new TextDecoder('utf-8');
+  var wbDoc = xlsxParseXml(dec.decode(wbBytes));
+  var sheetNodes = wbDoc.getElementsByTagName('sheet');
+  var relsBytes = await xlsxReadEntry(zip, 'xl/_rels/workbook.xml.rels');
+  var relById = {};
+  if (relsBytes){
+    var relsDoc = xlsxParseXml(dec.decode(relsBytes));
+    var relNodes = relsDoc.getElementsByTagName('Relationship');
+    for (var i=0;i<relNodes.length;i++){
+      var target = (relNodes[i].getAttribute('Target') || '').replace(/^\/?/, '');
+      if (!/^xl\//.test(target)) target = 'xl/' + target.replace(/^\.\//,'');
+      relById[relNodes[i].getAttribute('Id')] = target;
+    }
+  }
+  var out = [];
+  for (var j=0;j<sheetNodes.length;j++){
+    var name = sheetNodes[j].getAttribute('name') || ('Sheet'+(j+1));
+    var rId = sheetNodes[j].getAttribute('r:id');
+    var path = (rId && relById[rId]) || ('xl/worksheets/sheet'+(j+1)+'.xml');
+    out.push({ name: name, path: path });
+  }
+  return out;
+}
+/* Same row-object extraction as parseXlsxWorkbook's tail end, factored out so a multi-sheet import
+   can reuse one already-parsed sharedStrings/styles pair across every sheet instead of re-reading
+   them per sheet. Headers are used as-is (trimmed) — admin-import sheets have their own fixed
+   column names (see ADMIN_IMPORT_SHEETS), not the employee data-load template's header aliases. */
+function xlsxRowsFromSheet(sheetXmlText, sharedStrings, styles){
+  var rows = xlsxParseSheet(sheetXmlText, sharedStrings, styles);
+  var compact = rows.filter(function(r){ return r != null; });
+  if (!compact.length) return [];
+  var headerRow = compact[0] || [];
+  var headers = headerRow.map(function(h){ return (h==null?'':String(h)).trim(); });
+  var dataRows = compact.slice(1).filter(function(r){
+    return r && r.some(function(v){ return v!=null && String(v).trim()!==''; });
+  });
+  return dataRows.map(function(r){
+    var o = {};
+    headers.forEach(function(h, i){
+      if (!h) return;
+      var v = r[i];
+      o[h] = (v==null ? '' : String(v)).trim();
+    });
+    return o;
+  });
+}
+/* Reads every worksheet in the workbook into {sheetName: [rowObjects...]} — the multi-sheet
+   counterpart to parseXlsxWorkbook. Used by the Administration bulk import, where one workbook
+   carries several named tabs (Regions, Roles, Practices, ...) in a single upload. */
+async function parseXlsxWorkbookAllSheets(arrayBuffer){
+  var zip = await xlsxUnzip(arrayBuffer);
+  var hasAnySheet = Object.keys(zip.entries).some(function(n){ return /^xl\/worksheets\/.*\.xml$/.test(n); });
+  if (!hasAnySheet) throw new Error('This doesn\'t look like a valid .xlsx file (missing the expected worksheet data inside).');
+  var dec = new TextDecoder('utf-8');
+  var sharedStringsBytes = await xlsxReadEntry(zip, 'xl/sharedStrings.xml');
+  var stylesBytes = await xlsxReadEntry(zip, 'xl/styles.xml');
+  var sharedStrings = sharedStringsBytes ? xlsxParseSharedStrings(dec.decode(sharedStringsBytes)) : [];
+  var styles = stylesBytes ? xlsxParseStyles(dec.decode(stylesBytes)) : { numFmts:{}, cellXfs:[] };
+  var sheets = await xlsxLocateAllSheets(zip);
+  var out = {};
+  for (var i=0;i<sheets.length;i++){
+    var bytes = await xlsxReadEntry(zip, sheets[i].path);
+    if (!bytes) continue;
+    out[sheets[i].name] = xlsxRowsFromSheet(dec.decode(bytes), sharedStrings, styles);
+  }
+  return out;
 }
 
 /* ============================= CSV HELPERS ============================= */
