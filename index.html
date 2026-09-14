@@ -1964,24 +1964,35 @@ function viewPromotionDashboard(){
   html += '<div class="card card-pad" style="margin-top:16px;"><div class="section-title">Promotion funnel</div><div class="section-sub">From recommendation through system eligibility determination</div>'+
     svgBarChart(funnel.map(function(f,i){return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--warning)'][i]};}),{height:190})+'</div>';
 
-  html += '<div style="margin-top:16px;">'+renderQuotaCompliancePanel(cases)+'</div>';
-  html += renderPromotionQuotaExceptionsPanel(cases);
+  // Per-grade rank among promotion-eligible candidates (see promotionQuotaExceptions) for every
+  // grade that has a configured quota AND exceeds it — keyed by employee id so the candidates table
+  // below can show "rank of total" plus an over/within-quota marker inline, instead of a separate
+  // compliance table.
+  var overflowByEmp = {};
+  promotionQuotaExceptions(cases).forEach(function(ex){
+    ex.ranked.forEach(function(rc, i){ overflowByEmp[rc.employee.id] = { rank:i+1, total:ex.total, quota:ex.quota, ex:ex }; });
+  });
 
   html += '<div style="margin-top:18px;" class="section-title">Promotion candidates</div><div class="section-sub">'+
     (searchQ ? candidates.length+' of '+candidatesBeforeSearch+' cases match "'+esc(UI.search.trim())+'"' : candidates.length+' cases with a recommendation or a non-blocking eligibility status')+
     '</div>';
   html += filterBar([{field:'region',label:'Region'},{field:'practice',label:'Practice'},{field:'globalGrade',label:'Grade'},{field:'eligibility',label:'Eligibility',options:['Eligible','Eligible With Exception','Not Eligible']}],'promo');
 
-  html += '<div class="card table-scroll"><table><thead><tr><th>Employee</th><th>Grade</th><th>Practice</th><th>Readiness</th><th>Rating</th><th>Eligibility</th><th>Reason codes</th><th></th></tr></thead><tbody>'+
+  html += '<div class="card table-scroll"><table><thead><tr><th>Employee</th><th>Grade</th><th>Practice</th><th>Readiness</th><th>Rating</th><th>Eligibility</th><th title="Rank among promotion-eligible peers in the same Local Grade, only where that grade\'s quota is exceeded — see Administration &gt; Rating &amp; Promotion Quotas">Quota Rank</th><th>Reason codes</th><th></th></tr></thead><tbody>'+
     candidates.map(function(c){
       var topReasons = c.eligibility.reasons.filter(function(r){return r.ok!==true;}).slice(0,2);
-      return '<tr><td class="clickable" data-go="dossiers/'+c.employee.id+'"><div class="table-name">'+esc(c.employee.name)+'</div><div class="table-sub mono">'+c.employee.ggid+'</div></td>'+
+      var ov = overflowByEmp[c.employee.id];
+      var overQuota = ov && ov.rank > ov.quota;
+      return '<tr'+(overQuota?' style="background:var(--warning-soft);"':'')+'><td class="clickable" data-go="dossiers/'+c.employee.id+'"><div class="table-name">'+esc(c.employee.name)+'</div><div class="table-sub mono">'+c.employee.ggid+'</div></td>'+
         '<td>'+c.employee.globalGrade+'</td><td>'+esc(c.employee.practice)+'</td>'+
         '<td>'+pill(c.employee.promotionReadiness, c.employee.promotionReadiness==='Ready Now'?'pill-success':'pill-neutral')+'</td>'+
         '<td>'+pill(c.rating.finalRating, ratingPillClass(c.rating.finalRating))+'</td>'+
         '<td>'+pill(c.eligibility.status, eligPillClass(c.eligibility.status))+'</td>'+
+        '<td>'+(ov ? '<span class="tabular">'+ov.rank+' of '+ov.total+'</span> '+(overQuota? pill('Over quota','pill-warning') : pill('Within quota','pill-success')) : '<span class="table-sub">—</span>')+'</td>'+
         '<td style="max-width:280px;">'+(topReasons.length? topReasons.map(function(r){return '<div style="font-size:11.5px;color:var(--text-secondary);">'+esc(r.text)+'</div>';}).join('') : '<span style="color:var(--text-tertiary);">No blockers</span>')+'</td>'+
-        '<td>'+(isHR()?'<button class="btn btn-sm" data-override="'+c.employee.id+'">Override</button>':'')+'</td>'+
+        '<td><div style="display:flex;gap:5px;flex-wrap:wrap;">'+(isHR()?'<button class="btn btn-sm" data-override="'+c.employee.id+'">Override</button>':'')+
+        (isHR() && overQuota ? '<button class="btn btn-sm" data-suggest-override="'+c.employee.id+'" data-exgrade="'+c.employee.localGrade+'" data-rank="'+ov.rank+'">Suggest rating</button>' : '')+
+        '</div></td>'+
       '</tr>';
     }).join('')+'</tbody></table>'+(candidates.length?'':'<div class="empty-state">No candidates match the current filters.</div>')+'</div>';
 
@@ -2073,56 +2084,11 @@ function openEditCoreDetailsModal(empId){
 }
 
 /* ============================= VIEW: CALIBRATION DASHBOARD ============================= */
-/* Forced-distribution quota compliance: actual counts (from the given case list) vs the admin-configured
-   caps per Local Grade, always grouped by grade regardless of the dashboard's own Group-by toggle. */
-function quotaActuals(cases){
-  var byGrade = {};
-  cases.forEach(function(c){
-    var g = c.employee.localGrade;
-    byGrade[g] = byGrade[g] || { total:0, ratings:{}, promotable:0 };
-    RATINGS.forEach(function(r){ if (byGrade[g].ratings[r]==null) byGrade[g].ratings[r]=0; });
-    byGrade[g].total++;
-    byGrade[g].ratings[c.rating.finalRating]++;
-    if (c.eligibility.status !== 'Not Eligible') byGrade[g].promotable++;
-  });
-  return byGrade;
-}
-function quotaBadge(actual, quota){
-  if (quota==null) return '<span class="table-sub">'+actual+' <span style="color:var(--text-tertiary);">(no cap)</span></span>';
-  var over = actual > quota;
-  return '<span style="font-weight:700;" class="tabular">'+actual+'</span> <span class="table-sub">/ '+quota+'</span> '+
-    (over ? pill('+'+(actual-quota)+' over','pill-critical') : (actual===quota ? pill('At cap','pill-warning') : pill('Under','pill-success')));
-}
-function renderQuotaCompliancePanel(cases){
-  var configuredGrades = localGradeOrder().filter(function(g){
-    var q = STATE.quotaConfig[g] || {};
-    return q.promotions!=null || RATINGS.some(function(r){ return q[r]!=null; });
-  });
-  if (!configuredGrades.length){
-    return '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Forced distribution quota compliance</div>'+
-      '<div class="table-sub" style="margin-top:6px;">No quotas configured yet. Set caps per Local Grade under Administration → Rating & Promotion Quotas.</div></div>';
-  }
-  var actuals = quotaActuals(cases);
-  var html = '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Forced distribution quota compliance</div>'+
-    '<div class="section-sub">Actual counts in view vs. the caps set under Administration for each Local Grade</div>'+
-    '<div class="table-scroll"><table><thead><tr><th>Local Grade</th><th>Promotions</th>'+RATINGS.map(function(r){return '<th>'+r+'</th>';}).join('')+'</tr></thead><tbody>'+
-    configuredGrades.map(function(g){
-      var q = STATE.quotaConfig[g] || {};
-      var a = actuals[g] || { total:0, ratings:{}, promotable:0 };
-      return '<tr><td class="table-name">'+g+'</td>'+
-        '<td>'+quotaBadge(a.promotable, q.promotions)+'</td>'+
-        RATINGS.map(function(r){ return '<td>'+quotaBadge(a.ratings[r]||0, q[r])+'</td>'; }).join('')+
-        '</tr>';
-    }).join('')+
-    '</tbody></table></div></div>';
-  return html;
-}
-
-/* Per Local Grade, the promotion-eligible cases (Eligible or Eligible With Exception — same
-   population renderQuotaCompliancePanel counts as "Promotions" actuals) ranked by the most
-   objective signals on file: time-in-grade first, then certification level, then utilization as a
-   tiebreaker. Only grades with a configured promotions cap that this population actually exceeds
-   are returned — nothing to flag otherwise. */
+/* Per Local Grade, the promotion-eligible cases (Eligible or Eligible With Exception) ranked by the
+   most objective signals on file: time-in-grade first, then certification level, then utilization
+   as a tiebreaker. Only grades with a configured promotions cap that this population actually
+   exceeds are returned — nothing to flag otherwise. Drives the "Quota Rank" column on the
+   Promotions dashboard's candidates table (no separate compliance table anymore). */
 function promotionQuotaExceptions(cases){
   var byGrade = {};
   cases.forEach(function(c){
@@ -2149,33 +2115,6 @@ function promotionQuotaExceptions(cases){
 function promotionOverflowReason(ex, rank, c){
   return 'Promotion-quota review, '+localGradeName(ex.localGrade)+' ('+ex.localGrade+'): '+ex.total+' promotion-eligible candidate(s) this cycle against a quota of '+ex.quota+'. Ranked by time-in-grade, certification level, and utilization — ranked '+rank+' of '+ex.total+' (TIG '+c.employee.timeInGrade+' yrs, '+(c.employee.certificationLevel||'None')+' cert, '+(c.employee.utilization||0)+'% utilization). Rating capped to a modest bracket rather than advanced this cycle; remains fully promotion-eligible for next cycle.';
 }
-function renderPromotionQuotaExceptionsPanel(cases){
-  var exceptions = promotionQuotaExceptions(cases);
-  if (!exceptions.length) return '';
-  var html = '<div class="card card-pad" style="margin-top:16px;">'+
-    '<div class="section-title" style="font-size:14.5px;">Promotion quota exceptions</div>'+
-    '<div class="section-sub">More promotion-eligible candidates than this cycle\'s quota allows, per Local Grade — ranked by time-in-grade, then certification level, then utilization. Candidates below the quota line get a suggested rating (capped to a modest bracket, not promotion, this cycle) for HR to review and confirm — nothing is applied automatically.</div>';
-  exceptions.forEach(function(ex){
-    html += '<div style="margin-top:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">'+esc(localGradeName(ex.localGrade))+' ('+esc(ex.localGrade)+') — '+ex.total+' candidates, quota '+ex.quota+'</div>'+
-      '<div class="table-scroll"><table><thead><tr><th>Rank</th><th>Employee</th><th>TIG</th><th>Cert</th><th>Utilization</th><th>Status</th><th></th></tr></thead><tbody>'+
-      ex.ranked.map(function(c, i){
-        var rank = i+1, overQuota = rank > ex.quota;
-        return '<tr'+(overQuota?' style="background:var(--warning-soft);"':'')+'>'+
-          '<td class="tabular">'+rank+'</td>'+
-          '<td class="clickable" data-go="dossiers/'+c.employee.id+'"><div class="table-name">'+esc(c.employee.name)+'</div><div class="table-sub mono">'+c.employee.ggid+'</div></td>'+
-          '<td>'+c.employee.timeInGrade+' yrs</td>'+
-          '<td>'+esc(c.employee.certificationLevel||'None')+'</td>'+
-          '<td>'+(c.employee.utilization||0)+'%</td>'+
-          '<td>'+(overQuota? pill('Over quota','pill-warning') : pill('Within quota','pill-success'))+(c.employee.ratingOverride?' <span class="table-sub">· HR override applied</span>':'')+'</td>'+
-          '<td>'+(overQuota && isHR() ? '<button class="btn btn-sm" data-suggest-override="'+c.employee.id+'" data-exgrade="'+ex.localGrade+'" data-rank="'+rank+'">Review &amp; suggest rating</button>' : '')+'</td>'+
-        '</tr>';
-      }).join('')+
-      '</tbody></table></div></div>';
-  });
-  html += '</div>';
-  return html;
-}
-
 function viewCalibrationDashboard(){
   var cases = scopedCases();
   var groupBy = UI.calibGroup || 'practice';
@@ -2183,8 +2122,6 @@ function viewCalibrationDashboard(){
   cases.forEach(function(c){ var k=c.employee[groupBy]; groups[k]=groups[k]||[]; groups[k].push(c); });
 
   var html = '<div class="section-title">Rating calibration</div><div class="section-sub">Compare distribution shape across groups to spot outlier leniency or severity before RTD sign-off</div>';
-
-  html += renderQuotaCompliancePanel(cases);
 
   var overallCounts = {}; RATINGS.forEach(function(r){ overallCounts[r]=0; });
   cases.forEach(function(c){ overallCounts[c.rating.finalRating]++; });
