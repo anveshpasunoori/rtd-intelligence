@@ -1859,6 +1859,7 @@ function viewPromotionDashboard(){
     svgBarChart(funnel.map(function(f,i){return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--warning)'][i]};}),{height:190})+'</div>';
 
   html += '<div style="margin-top:16px;">'+renderQuotaCompliancePanel(cases)+'</div>';
+  html += renderPromotionQuotaExceptionsPanel(cases);
 
   html += '<div style="margin-top:18px;" class="section-title">Promotion candidates</div><div class="section-sub">'+
     (searchQ ? candidates.length+' of '+candidatesBeforeSearch+' cases match "'+esc(UI.search.trim())+'"' : candidates.length+' cases with a recommendation or a non-blocking eligibility status')+
@@ -1883,6 +1884,17 @@ function viewPromotionDashboard(){
   bindGoLinks();
   Array.prototype.forEach.call(document.querySelectorAll('[data-override]'), function(btn){
     btn.addEventListener('click', function(){ openEligibilityOverrideModal(btn.getAttribute('data-override')); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-suggest-override]'), function(btn){
+    btn.addEventListener('click', function(){
+      var empId = btn.getAttribute('data-suggest-override');
+      var grade = btn.getAttribute('data-exgrade');
+      var rank = parseInt(btn.getAttribute('data-rank'), 10);
+      var ex = promotionQuotaExceptions(cases).filter(function(x){ return x.localGrade===grade; })[0];
+      if (!ex) return;
+      var c = caseFor(empId);
+      openRatingOverrideModal(empId, { rating: capRating(c.rating.finalRating, 'Succeeding'), note: promotionOverflowReason(ex, rank, c) });
+    });
   });
 }
 
@@ -1997,6 +2009,64 @@ function renderQuotaCompliancePanel(cases){
         '</tr>';
     }).join('')+
     '</tbody></table></div></div>';
+  return html;
+}
+
+/* Per Local Grade, the promotion-eligible cases (Eligible or Eligible With Exception — same
+   population renderQuotaCompliancePanel counts as "Promotions" actuals) ranked by the most
+   objective signals on file: time-in-grade first, then certification level, then utilization as a
+   tiebreaker. Only grades with a configured promotions cap that this population actually exceeds
+   are returned — nothing to flag otherwise. */
+function promotionQuotaExceptions(cases){
+  var byGrade = {};
+  cases.forEach(function(c){
+    if (c.eligibility.status === 'Not Eligible') return;
+    var g = c.employee.localGrade;
+    (byGrade[g] = byGrade[g] || []).push(c);
+  });
+  var out = [];
+  Object.keys(byGrade).forEach(function(g){
+    var quota = (STATE.quotaConfig[g]||{}).promotions;
+    if (quota == null) return;
+    var ranked = byGrade[g].slice().sort(function(a,b){
+      if (b.employee.timeInGrade !== a.employee.timeInGrade) return b.employee.timeInGrade - a.employee.timeInGrade;
+      var ca = CERT_RANK[a.employee.certificationLevel||'None']||0, cb = CERT_RANK[b.employee.certificationLevel||'None']||0;
+      if (cb !== ca) return cb - ca;
+      return (b.employee.utilization||0) - (a.employee.utilization||0);
+    });
+    if (ranked.length > quota) out.push({ localGrade:g, quota:quota, total:ranked.length, ranked:ranked });
+  });
+  var order = localGradeOrder();
+  out.sort(function(a,b){ return order.indexOf(a.localGrade) - order.indexOf(b.localGrade); });
+  return out;
+}
+function promotionOverflowReason(ex, rank, c){
+  return 'Promotion-quota review, '+localGradeName(ex.localGrade)+' ('+ex.localGrade+'): '+ex.total+' promotion-eligible candidate(s) this cycle against a quota of '+ex.quota+'. Ranked by time-in-grade, certification level, and utilization — ranked '+rank+' of '+ex.total+' (TIG '+c.employee.timeInGrade+' yrs, '+(c.employee.certificationLevel||'None')+' cert, '+(c.employee.utilization||0)+'% utilization). Rating capped to a modest bracket rather than advanced this cycle; remains fully promotion-eligible for next cycle.';
+}
+function renderPromotionQuotaExceptionsPanel(cases){
+  var exceptions = promotionQuotaExceptions(cases);
+  if (!exceptions.length) return '';
+  var html = '<div class="card card-pad" style="margin-top:16px;">'+
+    '<div class="section-title" style="font-size:14.5px;">Promotion quota exceptions</div>'+
+    '<div class="section-sub">More promotion-eligible candidates than this cycle\'s quota allows, per Local Grade — ranked by time-in-grade, then certification level, then utilization. Candidates below the quota line get a suggested rating (capped to a modest bracket, not promotion, this cycle) for HR to review and confirm — nothing is applied automatically.</div>';
+  exceptions.forEach(function(ex){
+    html += '<div style="margin-top:14px;"><div style="font-weight:700;font-size:13px;margin-bottom:6px;">'+esc(localGradeName(ex.localGrade))+' ('+esc(ex.localGrade)+') — '+ex.total+' candidates, quota '+ex.quota+'</div>'+
+      '<div class="table-scroll"><table><thead><tr><th>Rank</th><th>Employee</th><th>TIG</th><th>Cert</th><th>Utilization</th><th>Status</th><th></th></tr></thead><tbody>'+
+      ex.ranked.map(function(c, i){
+        var rank = i+1, overQuota = rank > ex.quota;
+        return '<tr'+(overQuota?' style="background:var(--warning-soft);"':'')+'>'+
+          '<td class="tabular">'+rank+'</td>'+
+          '<td class="clickable" data-go="dossiers/'+c.employee.id+'"><div class="table-name">'+esc(c.employee.name)+'</div><div class="table-sub mono">'+c.employee.ggid+'</div></td>'+
+          '<td>'+c.employee.timeInGrade+' yrs</td>'+
+          '<td>'+esc(c.employee.certificationLevel||'None')+'</td>'+
+          '<td>'+(c.employee.utilization||0)+'%</td>'+
+          '<td>'+(overQuota? pill('Over quota','pill-warning') : pill('Within quota','pill-success'))+(c.employee.ratingOverride?' <span class="table-sub">· HR override applied</span>':'')+'</td>'+
+          '<td>'+(overQuota && isHR() ? '<button class="btn btn-sm" data-suggest-override="'+c.employee.id+'" data-exgrade="'+ex.localGrade+'" data-rank="'+rank+'">Review &amp; suggest rating</button>' : '')+'</td>'+
+        '</tr>';
+      }).join('')+
+      '</tbody></table></div></div>';
+  });
+  html += '</div>';
   return html;
 }
 
@@ -2219,14 +2289,19 @@ function dossierPeopleManagerCard(mgrRec){
     '</div></div>';
   return html;
 }
-function openRatingOverrideModal(empId){
+function openRatingOverrideModal(empId, prefill){
   var e = emp(empId); var c = caseFor(empId);
+  // An existing override always wins over a suggestion — this just pre-fills the form for a fresh
+  // decision, it never silently replaces one HR already made.
+  var defaultRating = e.ratingOverride || (prefill && prefill.rating) || '';
+  var defaultNote = e.ratingOverrideNote || (prefill && prefill.note) || '';
   var body = '<div class="field"><label>Employee</label><div style="font-weight:600;">'+esc(e.name)+' · '+e.ggid+'</div></div>'+
     '<div class="field"><label>System-computed rating</label><div>'+pill(c.rating.systemRating, ratingPillClass(c.rating.systemRating))+'</div></div>'+
+    (prefill && !e.ratingOverride ? '<div class="field"><div class="reason-item" style="color:var(--warning);">'+icon('alert',13)+'<span>Suggested from the Promotion quota exceptions review — check it over, adjust if needed, then confirm.</span></div></div>' : '')+
     '<div class="field"><label>Override rating</label><select id="ro-rating"><option value="">— No override —</option>'+
-    RATINGS.map(function(r){return '<option value="'+r+'"'+(e.ratingOverride===r?' selected':'')+'>'+r+'</option>';}).join('')+
+    RATINGS.map(function(r){return '<option value="'+r+'"'+(defaultRating===r?' selected':'')+'>'+r+'</option>';}).join('')+
     '</select></div>'+
-    '<div class="field"><label>Justification (audit note)</label><textarea id="ro-note" rows="3" placeholder="Reason for the manual override…">'+esc(e.ratingOverrideNote||'')+'</textarea></div>';
+    '<div class="field"><label>Justification (audit note)</label><textarea id="ro-note" rows="3" placeholder="Reason for the manual override…">'+esc(defaultNote)+'</textarea></div>';
   openModal('HR Rating Override', body, [
     {label:'Cancel', cls:'btn'},
     {label:'Save Override', cls:'btn btn-primary', action:function(){
