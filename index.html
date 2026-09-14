@@ -1436,7 +1436,7 @@ var ADMIN_TABS = [
   ['geo','Region Types & Regions'], ['roles','Roles & Grade Titles'], ['practice','Practices & Sub-Practices'],
   ['contrib','Contribution Categories'], ['rules','Rules Engine'], ['ld','L&D Hour Requirements'],
   ['quotas','Rating & Promotion Quotas'], ['mgr','Manager Config'], ['users','Users & Permissions'],
-  ['import','Import Admin Data'],
+  ['import','Import / Export Admin Data'],
 ];
 function adminTabLabel(key){ var t = ADMIN_TABS.find(function(x){return x[0]===key;}); return t ? t[1] : null; }
 /* 'dossiers' has no sidebar entry (the standalone list page was removed), but the dossier DETAIL
@@ -1881,7 +1881,10 @@ function viewRTDDashboard(){
     return 0;
   });
 
-  var html = '<div class="section-title">RTD Review</div><div class="section-sub">'+filtered.length+' of '+cases.length+' cases · click a row to open the full dossier</div>';
+  var html = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">'+
+    '<div><div class="section-title">RTD Review</div><div class="section-sub">'+filtered.length+' of '+cases.length+' cases · click a row to open the full dossier</div></div>'+
+    (isHR() ? '<button class="btn btn-sm" id="export-rtd-results">'+icon('folder',12)+' Export results (Excel)</button>' : '')+
+    '</div>';
   if ((UI.filters['rtd']||{}).risk) html += '<div class="table-sub" style="margin:-4px 0 10px;">Showing only cases flagged for risk. <span class="breadcrumb-link" id="clear-risk-filter">Clear</span></div>';
   html += filterBar([
     {field:'region', label:'Region'},
@@ -1928,6 +1931,36 @@ function viewRTDDashboard(){
   Array.prototype.forEach.call(document.querySelectorAll('[data-override-promo]'), function(btn){
     btn.addEventListener('click', function(ev){ ev.stopPropagation(); openEligibilityOverrideModal(btn.getAttribute('data-override-promo')); });
   });
+  var exportBtn = document.getElementById('export-rtd-results');
+  if (exportBtn) exportBtn.addEventListener('click', function(){ exportFinalizedResults(filtered); });
+}
+/* One row per case — the computed, post-HR-override outcome (not the raw upload data): final
+   rating and promotion eligibility as they actually stand right now, whether HR stepped in on
+   either, learning/certification compliance, any risk flags, and — where relevant — the same
+   promotion-quota rank/status the candidates table shows. Exports exactly the case list passed in,
+   so it honors whatever's currently filtered on screen. */
+function exportFinalizedResults(cases){
+  var overflowByEmp = {};
+  promotionQuotaExceptions(cases).forEach(function(ex){
+    ex.ranked.forEach(function(rc, i){ overflowByEmp[rc.employee.id] = { rank:i+1, total:ex.total, quota:ex.quota }; });
+  });
+  var headers = ['GGID','Name','Email','Region','Country','Global Grade','Local Grade','Practice','Sub-Practice',
+    'Final Rating','Rating Source','Promotion Eligibility','Eligibility Source','Learning Compliance',
+    'Certification','Quota Rank','Quota Status','Risk Flags'];
+  var rows = [headers];
+  cases.forEach(function(c){
+    var e = c.employee, ov = overflowByEmp[e.id];
+    rows.push([
+      e.ggid, e.name, e.email, e.region, e.country, e.globalGrade, e.localGrade, e.practice, e.subPractice,
+      c.rating.finalRating, e.ratingOverride ? 'HR Override' : 'System',
+      c.eligibility.status, e.promotionEligibilityOverride ? 'HR Override' : 'System',
+      c.learning.status, c.cert.gap ? 'Gap' : 'Met',
+      ov ? (ov.rank+' of '+ov.total) : '', ov ? (ov.rank>ov.quota ? 'Over quota' : 'Within quota') : '',
+      c.risk.join(' | ')
+    ]);
+  });
+  var blob = xlsxBuildWorkbook([{ name:'RTD Results', rows:rows }]);
+  offerDownload('rtd_finalized_results_'+STATE.meta.cycleLabel.replace(/\s+/g,'_')+'.xlsx', blob);
 }
 function thSort(label, field){
   var arrow = RTD_SORT.field===field ? (RTD_SORT.dir===1?' ↑':' ↓') : '';
@@ -3183,19 +3216,37 @@ function adminMgrEditor(){
    predictable — no per-row merge semantics to reason about). Sheet names are matched
    case/space/punctuation-insensitively, same normalization as gradeOrder()'s siblings. */
 var ADMIN_IMPORT_SHEETS = {
-  regiontypes: { label:'Region Types', build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.regionTypes = v; } },
-  regions: { label:'Regions', build:function(rows){ return rows.map(function(r){ return {name:r.name||'', regionType:r.regionType||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.regions = v; } },
-  roles: { label:'Roles / Local Grade Titles', build:function(rows){ return rows.map(function(r){ return {name:r.name||'', globalGrade:r.globalGrade||'', localGrade:r.localGrade||'', region:r.region||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.localGrades = v; } },
-  practices: { label:'Practices', build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.practices = v; } },
-  subpractices: { label:'Sub-Practices', build:function(rows){ return rows.map(function(r){ return {name:r.name||'', practice:r.practice||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.subPractices = v; } },
-  contributioncategories: { label:'Contribution Categories', build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.contributionCategories = v; } },
-  quotas: { label:'Rating & Promotion Quotas', build:function(rows){
+  regiontypes: { label:'Region Types', sheetName:'Region Types', headers:['name'],
+    build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.regionTypes = v; },
+    exportRows:function(){ return STATE.adminConfig.regionTypes.map(function(r){ return [r.name]; }); } },
+  regions: { label:'Regions', sheetName:'Regions', headers:['name','regionType'],
+    build:function(rows){ return rows.map(function(r){ return {name:r.name||'', regionType:r.regionType||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.regions = v; },
+    exportRows:function(){ return STATE.adminConfig.regions.map(function(r){ return [r.name, r.regionType||'']; }); } },
+  roles: { label:'Roles / Local Grade Titles', sheetName:'Roles', headers:['name','globalGrade','localGrade','region'],
+    build:function(rows){ return rows.map(function(r){ return {name:r.name||'', globalGrade:r.globalGrade||'', localGrade:r.localGrade||'', region:r.region||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.localGrades = v; },
+    exportRows:function(){ return STATE.adminConfig.localGrades.map(function(r){ return [r.name, r.globalGrade||'', r.localGrade||'', r.region||'']; }); } },
+  practices: { label:'Practices', sheetName:'Practices', headers:['name'],
+    build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.practices = v; },
+    exportRows:function(){ return STATE.adminConfig.practices.map(function(r){ return [r.name]; }); } },
+  subpractices: { label:'Sub-Practices', sheetName:'Sub Practices', headers:['name','practice'],
+    build:function(rows){ return rows.map(function(r){ return {name:r.name||'', practice:r.practice||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.subPractices = v; },
+    exportRows:function(){ return STATE.adminConfig.subPractices.map(function(r){ return [r.name, r.practice||'']; }); } },
+  contributioncategories: { label:'Contribution Categories', sheetName:'Contribution Categories', headers:['name'],
+    build:function(rows){ return rows.map(function(r){ return {name:r.name||''}; }).filter(function(r){return r.name;}); }, apply:function(v){ STATE.adminConfig.contributionCategories = v; },
+    exportRows:function(){ return STATE.adminConfig.contributionCategories.map(function(r){ return [r.name]; }); } },
+  quotas: { label:'Rating & Promotion Quotas', sheetName:'Quotas', headers:['localGrade','promotions','needsImprovement','succeeding','exceeding','exceptional'],
+    build:function(rows){
       var num = function(v){ return (v==null||v==='') ? null : (parseInt(v,10)||0); };
       var out = {};
       rows.forEach(function(r){ if (!r.localGrade) return; out[r.localGrade] = { promotions:num(r.promotions), 'Needs Improvement':num(r.needsImprovement), 'Succeeding':num(r.succeeding), 'Exceeding':num(r.exceeding), 'Exceptional':num(r.exceptional) }; });
       return out;
-    }, apply:function(v){ STATE.quotaConfig = v; }, count:function(v){ return Object.keys(v).length; } },
-  ldhours: { label:'L&D Hour Requirements', build:function(rows){
+    }, apply:function(v){ STATE.quotaConfig = v; }, count:function(v){ return Object.keys(v).length; },
+    exportRows:function(){
+      var blank = function(v){ return v==null ? '' : v; };
+      return localGradeOrder().map(function(g){ var q = STATE.quotaConfig[g]||{}; return [g, blank(q.promotions), blank(q['Needs Improvement']), blank(q['Succeeding']), blank(q['Exceeding']), blank(q['Exceptional'])]; });
+    } },
+  ldhours: { label:'L&D Hour Requirements', sheetName:'LD Hours', headers:['country','practice','localGrade','hours'],
+    build:function(rows){
       var out = {};
       rows.forEach(function(r){
         if (!r.country || !r.practice || !r.localGrade) return;
@@ -3204,17 +3255,42 @@ var ADMIN_IMPORT_SHEETS = {
         out[r.country][r.practice][r.localGrade] = parseInt(r.hours,10)||0;
       });
       return out;
-    }, apply:function(v){ STATE.ldHoursConfig = v; } },
+    }, apply:function(v){ STATE.ldHoursConfig = v; },
+    exportRows:function(){
+      var rows = [];
+      Object.keys(STATE.ldHoursConfig).forEach(function(country){
+        Object.keys(STATE.ldHoursConfig[country]).forEach(function(practice){
+          var byGrade = STATE.ldHoursConfig[country][practice];
+          Object.keys(byGrade).forEach(function(grade){ rows.push([country, practice, grade, byGrade[grade]]); });
+        });
+      });
+      return rows;
+    } },
 };
+/* Every admin category as one multi-sheet workbook, same sheet names/columns the importer above
+   expects — download, edit offline, re-upload through Import Admin Data to round-trip. */
+function exportAdminData(){
+  var sheets = Object.keys(ADMIN_IMPORT_SHEETS).map(function(key){
+    var spec = ADMIN_IMPORT_SHEETS[key];
+    return { name: spec.sheetName, rows: [spec.headers].concat(spec.exportRows()) };
+  });
+  var blob = xlsxBuildWorkbook(sheets);
+  offerDownload('rtd_admin_data_'+nowIso().slice(0,10)+'.xlsx', blob);
+}
 function adminImportSheetKey(sheetName){ return String(sheetName||'').trim().toLowerCase().replace(/[^a-z0-9]/g,''); }
 var ADMIN_IMPORT_PARSED = null;
 var ADMIN_IMPORT_FILENAME = null;
 function viewAdminImport(){
-  var html = '<div class="section-sub" style="margin-bottom:10px;">Upload one Excel workbook to bulk-replace admin reference data — put each category on its own named sheet tab (case-insensitive, spacing doesn\'t matter): <strong>Region Types</strong> (name), <strong>Regions</strong> (name, regionType), <strong>Roles</strong> (name, globalGrade, localGrade, region), <strong>Practices</strong> (name), <strong>Sub Practices</strong> (name, practice), <strong>Contribution Categories</strong> (name), <strong>Quotas</strong> (localGrade, promotions, needsImprovement, succeeding, exceeding, exceptional), <strong>LD Hours</strong> (country, practice, localGrade, hours). Only sheets present in the workbook are replaced — leave a tab out to leave that category as-is.</div>'+
+  var html = '<div class="card card-pad" style="margin-bottom:16px;"><div class="section-title" style="font-size:14.5px;">Export current admin data</div>'+
+    '<div class="section-sub" style="margin-bottom:12px;">Every category below as one workbook, in the same layout Import expects — a starting point to edit offline and re-upload, or just a record of what\'s configured today.</div>'+
+    '<button class="btn btn-sm" id="admin-export-btn">'+icon('folder',12)+' Export current admin data (Excel)</button></div>'+
+    '<div class="section-sub" style="margin-bottom:10px;">Upload one Excel workbook to bulk-replace admin reference data — put each category on its own named sheet tab (case-insensitive, spacing doesn\'t matter): <strong>Region Types</strong> (name), <strong>Regions</strong> (name, regionType), <strong>Roles</strong> (name, globalGrade, localGrade, region), <strong>Practices</strong> (name), <strong>Sub Practices</strong> (name, practice), <strong>Contribution Categories</strong> (name), <strong>Quotas</strong> (localGrade, promotions, needsImprovement, succeeding, exceeding, exceptional), <strong>LD Hours</strong> (country, practice, localGrade, hours). Only sheets present in the workbook are replaced — leave a tab out to leave that category as-is.</div>'+
     '<div class="card card-pad"><input type="file" id="admin-import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="font-size:12.5px;"/>'+
     '<div id="admin-import-preview" style="margin-top:14px;"></div></div>';
   document.getElementById('admin-tab-content').innerHTML = html;
   ADMIN_IMPORT_PARSED = null;
+  var exportBtn = document.getElementById('admin-export-btn');
+  if (exportBtn) exportBtn.addEventListener('click', exportAdminData);
   var fileInput = document.getElementById('admin-import-file');
   fileInput.addEventListener('change', function(){
     var file = fileInput.files[0];
@@ -3692,6 +3768,128 @@ async function parseXlsxWorkbookAllSheets(arrayBuffer){
     out[sheets[i].name] = xlsxRowsFromSheet(dec.decode(bytes), sharedStrings, styles);
   }
   return out;
+}
+
+/* ============================= XLSX WRITER (client-side, no backend) =============================
+   The read side above decodes an existing .xlsx; this builds a new one from scratch for the export
+   features (Annual Data Load's "Export results", the admin bulk-import screen's "Export current
+   admin data"), entirely in-browser, no server round-trip. Every cell is written as an inline string
+   (<c t="inlineStr">) rather than a shared-strings table or typed numeric cells — the simplest
+   correct encoding, and every consumer here (a human opening the file, or this same app's own
+   importer re-reading it) only ever wants the text back. The ZIP container uses the STORED (no
+   compression) method — valid per the ZIP spec and something xl/OOXML readers accept fine — since a
+   DEFLATE encoder isn't worth building for what are, at most, a few thousand rows. */
+function xmlEscapeText(s){
+  return String(s==null?'':s).replace(/[&<>]/g, function(c){ return c==='&'?'&amp;':c==='<'?'&lt;':'&gt;'; }).replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+}
+function xlsxIndexToColLetters(n){
+  var s = '';
+  n = n + 1;
+  while (n > 0){ var rem = (n - 1) % 26; s = String.fromCharCode(65 + rem) + s; n = Math.floor((n - 1) / 26); }
+  return s;
+}
+var CRC32_TABLE = (function(){
+  var table = [];
+  for (var n=0; n<256; n++){
+    var c = n;
+    for (var k=0; k<8; k++){ c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1); }
+    table[n] = c >>> 0;
+  }
+  return table;
+})();
+function crc32Bytes(bytes){
+  var crc = 0xFFFFFFFF;
+  for (var i=0; i<bytes.length; i++){ crc = (crc >>> 8) ^ CRC32_TABLE[(crc ^ bytes[i]) & 0xFF]; }
+  return (crc ^ 0xFFFFFFFF) >>> 0;
+}
+/* files: [{name, bytes:Uint8Array}] -> Blob (a valid, uncompressed/STORED .xlsx zip container). */
+function zipBuildStored(files){
+  var enc = new TextEncoder();
+  var localParts = [], centralParts = [], offset = 0;
+  var dosTime = 0, dosDate = 0x21; // fixed arbitrary timestamp (Jan 1 2021) -- generated files, not worth wall-clock precision
+  files.forEach(function(f){
+    var nameBytes = enc.encode(f.name);
+    var data = f.bytes;
+    var crc = crc32Bytes(data), size = data.length;
+    var lfh = new Uint8Array(30 + nameBytes.length);
+    var dv = new DataView(lfh.buffer);
+    dv.setUint32(0, 0x04034b50, true); dv.setUint16(4, 20, true); dv.setUint16(6, 0, true); dv.setUint16(8, 0, true);
+    dv.setUint16(10, dosTime, true); dv.setUint16(12, dosDate, true); dv.setUint32(14, crc, true);
+    dv.setUint32(18, size, true); dv.setUint32(22, size, true);
+    dv.setUint16(26, nameBytes.length, true); dv.setUint16(28, 0, true);
+    lfh.set(nameBytes, 30);
+    localParts.push(lfh, data);
+
+    var cdh = new Uint8Array(46 + nameBytes.length);
+    var cdv = new DataView(cdh.buffer);
+    cdv.setUint32(0, 0x02014b50, true); cdv.setUint16(4, 20, true); cdv.setUint16(6, 20, true);
+    cdv.setUint16(8, 0, true); cdv.setUint16(10, 0, true);
+    cdv.setUint16(12, dosTime, true); cdv.setUint16(14, dosDate, true); cdv.setUint32(16, crc, true);
+    cdv.setUint32(20, size, true); cdv.setUint32(24, size, true);
+    cdv.setUint16(28, nameBytes.length, true); cdv.setUint16(30, 0, true); cdv.setUint16(32, 0, true);
+    cdv.setUint16(34, 0, true); cdv.setUint16(36, 0, true); cdv.setUint32(38, 0, true);
+    cdv.setUint32(42, offset, true);
+    cdh.set(nameBytes, 46);
+    centralParts.push(cdh);
+
+    offset += lfh.length + data.length;
+  });
+  var centralStart = offset;
+  var centralSize = centralParts.reduce(function(s,p){ return s + p.length; }, 0);
+  var eocd = new Uint8Array(22);
+  var edv = new DataView(eocd.buffer);
+  edv.setUint32(0, 0x06054b50, true); edv.setUint16(4, 0, true); edv.setUint16(6, 0, true);
+  edv.setUint16(8, files.length, true); edv.setUint16(10, files.length, true);
+  edv.setUint32(12, centralSize, true); edv.setUint32(16, centralStart, true); edv.setUint16(20, 0, true);
+  return new Blob(localParts.concat(centralParts, [eocd]), { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+}
+function xlsxWorksheetXml(rows){
+  var body = rows.map(function(row, ri){
+    var cells = row.map(function(v, ci){
+      return '<c r="'+xlsxIndexToColLetters(ci)+(ri+1)+'" t="inlineStr"><is><t xml:space="preserve">'+xmlEscapeText(v)+'</t></is></c>';
+    }).join('');
+    return '<row r="'+(ri+1)+'">'+cells+'</row>';
+  }).join('');
+  return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'+body+'</sheetData></worksheet>';
+}
+/* sheets: [{name, rows}] — rows[0] is the header row, every row an array of primitive values in
+   column order. Sheet names are truncated/sanitized to Excel's 31-char, no-[]:*?/\\ tab-name rule. */
+function xlsxBuildWorkbook(sheets){
+  var enc = new TextEncoder();
+  var safeNames = sheets.map(function(s, i){
+    var n = String(s.name||('Sheet'+(i+1))).replace(/[\[\]:*?/\\]/g, ' ').trim().slice(0, 31);
+    return n || ('Sheet'+(i+1));
+  });
+  var contentTypes = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'+
+    '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'+
+    '<Default Extension="xml" ContentType="application/xml"/>'+
+    '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+
+    sheets.map(function(s,i){ return '<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>'; }).join('')+
+    '</Types>';
+  var rootRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    '<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>'+
+    '</Relationships>';
+  var workbookXml = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">'+
+    '<sheets>'+safeNames.map(function(n,i){ return '<sheet name="'+xmlEscapeText(n)+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>'; }).join('')+'</sheets>'+
+    '</workbook>';
+  var workbookRels = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'+
+    '<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+
+    sheets.map(function(s,i){ return '<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>'; }).join('')+
+    '</Relationships>';
+  var files = [
+    { name:'[Content_Types].xml', bytes: enc.encode(contentTypes) },
+    { name:'_rels/.rels', bytes: enc.encode(rootRels) },
+    { name:'xl/workbook.xml', bytes: enc.encode(workbookXml) },
+    { name:'xl/_rels/workbook.xml.rels', bytes: enc.encode(workbookRels) },
+  ];
+  sheets.forEach(function(s, i){
+    files.push({ name:'xl/worksheets/sheet'+(i+1)+'.xml', bytes: enc.encode(xlsxWorksheetXml(s.rows)) });
+  });
+  return zipBuildStored(files);
 }
 
 /* ============================= CSV HELPERS ============================= */
