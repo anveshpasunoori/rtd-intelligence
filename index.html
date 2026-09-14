@@ -1758,8 +1758,7 @@ function viewRTDDashboard(){
     {field:'region', label:'Region'},
     {field:'rating', label:'Rating', options:RATINGS},
     {field:'eligibility', label:'Promotion', options:['Eligible','Eligible With Exception','Not Eligible']},
-    {field:'globalGrade', label:'Grade', options:gradeOrder()},
-    {field:'peopleManager', label:'People Manager'},
+    {field:'localGrade', label:'Local Grade', options:localGradeOrder(), labelFor:localGradeName},
   ], 'rtd');
 
   html += '<div class="card table-scroll"><table><thead><tr>'+
