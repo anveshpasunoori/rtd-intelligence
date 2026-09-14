@@ -593,6 +593,13 @@ function localGradeOrder(){
   });
   return list;
 }
+/* The title a Local Grade code stands for (e.g. 'B1' -> 'Associate Consultant'), per Administration
+   > Roles & Grade Titles — falls back to the bare code itself when it's not in that list (an
+   orphaned/legacy code on some employee record shouldn't make the filter dropdown break). */
+function localGradeName(code){
+  var hit = (STATE.adminConfig.localGrades||[]).filter(function(r){ return r.localGrade===code; })[0];
+  return hit ? hit.name : code;
+}
 
 /* The reviewer scope-lock feature (region/local grade/practice visibility ceiling) was removed —
    every viewer now sees the full roster, narrowed only by the sidebar Quick Filters and, separately,
@@ -1437,7 +1444,7 @@ function sidebarFiltersHtml(){
       (quickFiltersActive() ? '<span class="breadcrumb-link" id="sf-clear" style="font-size:10.5px;text-transform:none;letter-spacing:0;">Clear</span>' : '')+
     '</div>'+
     '<select id="sf-region" title="Region"><option value="">Region — All</option>'+distinctValues('region').map(function(v){return '<option value="'+esc(v)+'"'+(QF.region===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
-    '<select id="sf-localgrade" title="Local Grade"><option value="">Local Grade — All</option>'+distinctValues('localGrade').map(function(v){return '<option value="'+esc(v)+'"'+(QF.localGrade===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
+    '<select id="sf-localgrade" title="Local Grade"><option value="">Local Grade — All</option>'+distinctValues('localGrade').map(function(v){return '<option value="'+esc(v)+'"'+(QF.localGrade===v?' selected':'')+'>'+esc(localGradeName(v))+'</option>';}).join('')+'</select>'+
     '<select id="sf-practice" title="Practice"><option value="">Practice — All</option>'+distinctValues('practice').map(function(v){return '<option value="'+esc(v)+'"'+(QF.practice===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
     (isHR() ? '<select id="sf-year" title="Year">'+
       '<option value=""'+(!QF.year?' selected':'')+'>Year — '+esc(STATE.meta.cycleLabel)+' (current)</option>'+
@@ -1574,8 +1581,9 @@ function filterBar(fields, storeKey){
   var html = '<div class="filter-bar">';
   fields.forEach(function(fld){
     var vals = fld.options || distinctValues(fld.field);
+    var labelFor = fld.labelFor || function(v){ return v; };
     html += '<select data-filter="'+fld.field+'" data-store="'+storeKey+'"><option value="">'+fld.label+' — All</option>'+
-      vals.map(function(v){ return '<option value="'+esc(v)+'"'+(f[fld.field]===v?' selected':'')+'>'+esc(v)+'</option>'; }).join('')+
+      vals.map(function(v){ return '<option value="'+esc(v)+'"'+(f[fld.field]===v?' selected':'')+'>'+esc(labelFor(v))+'</option>'; }).join('')+
       '</select>';
   });
   html += '<button class="btn btn-sm" id="clear-filters-'+storeKey+'">Clear filters</button></div>';
@@ -1747,6 +1755,7 @@ function viewRTDDashboard(){
   var html = '<div class="section-title">RTD Review</div><div class="section-sub">'+filtered.length+' of '+cases.length+' cases · click a row to open the full dossier</div>';
   if ((UI.filters['rtd']||{}).risk) html += '<div class="table-sub" style="margin:-4px 0 10px;">Showing only cases flagged for risk. <span class="breadcrumb-link" id="clear-risk-filter">Clear</span></div>';
   html += filterBar([
+    {field:'region', label:'Region'},
     {field:'rating', label:'Rating', options:RATINGS},
     {field:'eligibility', label:'Promotion', options:['Eligible','Eligible With Exception','Not Eligible']},
     {field:'globalGrade', label:'Grade', options:gradeOrder()},
@@ -2428,7 +2437,7 @@ function viewContributions(){
   html += '<div class="card card-pad" style="margin-bottom:16px;"><div class="section-title" style="font-size:14px;">Contributions by type</div>'+svgBarChart(typeBars,{height:180})+'</div>';
 
   html += filterBar([
-    {field:'region', label:'Region'}, {field:'localGrade', label:'Local Grade', options:distinctValues('localGrade')},
+    {field:'region', label:'Region'}, {field:'localGrade', label:'Local Grade', options:distinctValues('localGrade'), labelFor:localGradeName},
     {field:'practice', label:'Practice'}, {field:'contributionType', label:'Contribution Type', options:STATE.adminConfig.contributionCategories.map(function(c){return c.name;})}
   ], 'ctb');
 
