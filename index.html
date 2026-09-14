@@ -603,11 +603,26 @@ function scopedEmployees(){ return STATE.employees.filter(matchesQuickFilters); 
 
 /* Forced-distribution quotas: how many promotions and how many of each rating a Local Grade may
    hand out this cycle. Admin-configurable under Administration > Rating & Promotion Quotas.
-   Null = uncapped. */
+   Null = uncapped. Seeded with a sensible default per Local Grade — headcount-sized pools
+   (promotions and the Needs Improvement/Exceeding/Exceptional caps) shrink as seniority rises,
+   with Succeeding left uncapped throughout since it's meant to absorb whoever doesn't land in a
+   more tightly controlled bucket. A grade added later with no matching default just comes up
+   uncapped rather than erroring. */
 if (!STATE.quotaConfig){
   STATE.quotaConfig = {};
-  localGradeOrder().forEach(function(g){ STATE.quotaConfig[g] = { promotions:null, 'Needs Improvement':null, 'Succeeding':null, 'Exceeding':null, 'Exceptional':null }; });
-  if (STATE.quotaConfig['C1']) STATE.quotaConfig['C1'] = { promotions:4, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':5, 'Exceptional':5 };
+  var DEFAULT_LOCAL_GRADE_QUOTAS = {
+    'B1': { promotions:5, 'Needs Improvement':2, 'Succeeding':null, 'Exceeding':6, 'Exceptional':2 },
+    'B2': { promotions:4, 'Needs Improvement':2, 'Succeeding':null, 'Exceeding':5, 'Exceptional':2 },
+    'C1': { promotions:4, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':5, 'Exceptional':2 },
+    'C2': { promotions:3, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':4, 'Exceptional':2 },
+    'D1': { promotions:2, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':3, 'Exceptional':1 },
+    'D2': { promotions:2, 'Needs Improvement':0, 'Succeeding':null, 'Exceeding':2, 'Exceptional':1 },
+    'E1': { promotions:1, 'Needs Improvement':0, 'Succeeding':null, 'Exceeding':2, 'Exceptional':1 },
+    'E2': { promotions:1, 'Needs Improvement':0, 'Succeeding':null, 'Exceeding':1, 'Exceptional':1 },
+  };
+  localGradeOrder().forEach(function(g){
+    STATE.quotaConfig[g] = DEFAULT_LOCAL_GRADE_QUOTAS[g] || { promotions:null, 'Needs Improvement':null, 'Succeeding':null, 'Exceeding':null, 'Exceptional':null };
+  });
 }
 
 function ratingPillClass(r){
@@ -2953,7 +2968,7 @@ function adminLdEditor(){
 }
 function adminQuotaEditor(){
   var html = '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Forced Distribution Quotas by Local Grade</div>'+
-    '<div class="section-sub">Set how many promotions and how many of each rating this Local Grade — i.e. this specific title, since two titles can share a Global Grade — is allowed to hand out this cycle — e.g. C1: 4 promotions, 5 Exceptional, 5 Exceeding, 1 Needs Improvement. Leave a box blank for no cap. These guide the Calibration and Promotion dashboards; the committee still makes the final call.</div>'+
+    '<div class="section-sub">Set how many promotions and how many of each rating this Local Grade — i.e. this specific title, since two titles can share a Global Grade — is allowed to hand out this cycle — e.g. C1: 4 promotions, 5 Exceeding, 2 Exceptional, 1 Needs Improvement. Leave a box blank for no cap. These guide the Calibration and Promotion dashboards; the committee still makes the final call.</div>'+
     '<div class="table-scroll"><table><thead><tr><th>Local Grade</th><th>Promotions Allowed</th>'+RATINGS.map(function(r){return '<th>'+r+'</th>';}).join('')+'</tr></thead><tbody>'+
     localGradeOrder().map(function(g){
       var q = STATE.quotaConfig[g] || {};
