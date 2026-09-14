@@ -532,37 +532,23 @@ function currentUserName(){
   return u ? u.name : STATE.meta.currentUser;
 }
 
-/* Canonical region → country structure. Region is a roll-up of Country, not an independent field, so the
-   Region quick filter below is resolved through this map — every employee whose Country falls under the
-   selected Region is shown, regardless of what a raw "region" value on the record might say (this matters
-   once real annual-load uploads bring in employee rows where a Region column is missing, stale, or typed
-   inconsistently — Country is the more reliable, verifiable field). Falls back to the employee's own
-   region field only when their country isn't in this map at all, so unrecognized countries are never
-   silently dropped from Region filtering. */
-var REGION_COUNTRIES = {
-  'North America': ['United States','Canada'],
-  'EMEA': ['United Kingdom','Germany','Ireland'],
-  'APAC': ['India','Australia','Singapore'],
-};
-var COUNTRY_TO_REGION = {};
-Object.keys(REGION_COUNTRIES).forEach(function(r){ REGION_COUNTRIES[r].forEach(function(c){ COUNTRY_TO_REGION[c] = r; }); });
-function regionForEmployee(e){ return COUNTRY_TO_REGION[e.country] || e.region || ''; }
-
-/* Sidebar quick filters (Region / Country / Local Grade / Practice) — a per-viewer convenience narrowing of what's
-   shown, so it lives in localStorage the same way and never touches shared STATE. */
+/* Sidebar quick filters (Region / Local Grade / Practice) — a per-viewer convenience narrowing of what's
+   shown, so it lives in localStorage the same way and never touches shared STATE. Region is a flat filter
+   straight off the employee's own region field — no separate Region→Country rollup/hierarchy (removed: an
+   org's own "Region" column may itself hold country-level values, so a hard-coded continent rollup and a
+   dependent Country filter just produced empty results for data shaped that way). */
 function loadQuickFilters(){
   try{
     var raw = localStorage.getItem('rtd_quick_filters_v1');
-    if (raw){ var q = JSON.parse(raw); if (q) return {region:q.region||'', country:q.country||'', localGrade:q.localGrade||'', practice:q.practice||'', year:q.year||''}; }
+    if (raw){ var q = JSON.parse(raw); if (q) return {region:q.region||'', localGrade:q.localGrade||'', practice:q.practice||'', year:q.year||''}; }
   }catch(e){}
-  return { region:'', country:'', localGrade:'', practice:'', year:'' };
+  return { region:'', localGrade:'', practice:'', year:'' };
 }
 function saveQuickFilters(){ try{ localStorage.setItem('rtd_quick_filters_v1', JSON.stringify(QF)); }catch(e){} }
 var QF = loadQuickFilters();
-function quickFiltersActive(){ return !!(QF.region || QF.country || QF.localGrade || QF.practice || QF.year); }
+function quickFiltersActive(){ return !!(QF.region || QF.localGrade || QF.practice || QF.year); }
 function matchesQuickFilters(e){
-  if (QF.region && regionForEmployee(e) !== QF.region) return false;
-  if (QF.country && e.country !== QF.country) return false;
+  if (QF.region && e.region !== QF.region) return false;
   if (QF.localGrade && e.localGrade !== QF.localGrade) return false;
   if (QF.practice && e.practice !== QF.practice) return false;
   return true;
@@ -1311,7 +1297,7 @@ ROUTE_LABEL['admin'] = 'Administration';
    each one is directly linkable/bookmarkable/shareable and survives a refresh. Defined at module
    scope (not inside viewAdmin) so renderApp can also read it for the topbar breadcrumb. */
 var ADMIN_TABS = [
-  ['geo','Regions & Countries'], ['roles','Roles & Grade Titles'], ['practice','Practices & Sub-Practices'],
+  ['roles','Roles & Grade Titles'], ['practice','Practices & Sub-Practices'],
   ['contrib','Contribution Categories'], ['rules','Rules Engine'], ['ld','L&D Hour Requirements'],
   ['quotas','Rating & Promotion Quotas'], ['mgr','Manager Config'], ['users','Users & Permissions'],
 ];
@@ -1408,8 +1394,7 @@ function sidebarFiltersHtml(){
       '<span>Quick Filters</span>'+
       (quickFiltersActive() ? '<span class="breadcrumb-link" id="sf-clear" style="font-size:10.5px;text-transform:none;letter-spacing:0;">Clear</span>' : '')+
     '</div>'+
-    '<select id="sf-region" title="Region"><option value="">Region — All</option>'+Object.keys(REGION_COUNTRIES).map(function(v){return '<option value="'+esc(v)+'"'+(QF.region===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
-    '<select id="sf-country" title="Country"><option value="">Country — All</option>'+(QF.region ? REGION_COUNTRIES[QF.region] : distinctValues('country')).map(function(v){return '<option value="'+esc(v)+'"'+(QF.country===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
+    '<select id="sf-region" title="Region"><option value="">Region — All</option>'+distinctValues('region').map(function(v){return '<option value="'+esc(v)+'"'+(QF.region===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
     '<select id="sf-localgrade" title="Local Grade"><option value="">Local Grade — All</option>'+distinctValues('localGrade').map(function(v){return '<option value="'+esc(v)+'"'+(QF.localGrade===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
     '<select id="sf-practice" title="Practice"><option value="">Practice — All</option>'+distinctValues('practice').map(function(v){return '<option value="'+esc(v)+'"'+(QF.practice===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
     (isHR() ? '<select id="sf-year" title="Year">'+
@@ -1420,23 +1405,15 @@ function sidebarFiltersHtml(){
 }
 function bindSidebarFilters(){
   var rSel = document.getElementById('sf-region');
-  var cSel = document.getElementById('sf-country');
   var gSel = document.getElementById('sf-localgrade');
   var pSel = document.getElementById('sf-practice');
   var ySel = document.getElementById('sf-year');
-  if (rSel) rSel.addEventListener('change', function(){
-    QF.region = rSel.value;
-    // Country is scoped to the selected region's list, so drop a now-out-of-scope Country
-    // choice rather than leaving a filter combination that could never match anyone.
-    if (QF.region && QF.country && REGION_COUNTRIES[QF.region].indexOf(QF.country)<0) QF.country = '';
-    saveQuickFilters(); renderApp();
-  });
-  if (cSel) cSel.addEventListener('change', function(){ QF.country = cSel.value; saveQuickFilters(); renderApp(); });
+  if (rSel) rSel.addEventListener('change', function(){ QF.region = rSel.value; saveQuickFilters(); renderApp(); });
   if (gSel) gSel.addEventListener('change', function(){ QF.localGrade = gSel.value; saveQuickFilters(); renderApp(); });
   if (pSel) pSel.addEventListener('change', function(){ QF.practice = pSel.value; saveQuickFilters(); renderApp(); });
   if (ySel) ySel.addEventListener('change', function(){ QF.year = ySel.value; saveQuickFilters(); renderApp(); });
   var clearLink = document.getElementById('sf-clear');
-  if (clearLink) clearLink.addEventListener('click', function(){ QF = {region:'', country:'', localGrade:'', practice:'', year:''}; saveQuickFilters(); renderApp(); });
+  if (clearLink) clearLink.addEventListener('click', function(){ QF = {region:'', localGrade:'', practice:'', year:''}; saveQuickFilters(); renderApp(); });
 }
 function scopeSummaryText(){
   return isHR() ? 'Full access · all sections' : 'Standard access';
@@ -2893,7 +2870,6 @@ function viewAdmin(sub){
   }
 }
 function renderAdminTab(tab){
-  if (tab==='geo') return adminListEditor('Regions', STATE.adminConfig.regions, ['name'], 'regions') + adminListEditor('Countries', STATE.adminConfig.countries, ['name','region'], 'countries', {region: STATE.adminConfig.regions.map(function(r){return r.name;})});
   if (tab==='roles') return '<div class="section-sub" style="margin-bottom:10px;">Maps each title to a Global Grade — e.g. C1 → Consultant, C2 → Sr. Consultant. The senior band is split into its own grade codes (F1 Director, F2 Senior Director, F3 Vice President, F4 Executive Vice President) so each title carries its own TIG and quota configuration under Rating & Promotion Quotas and L&D. Local Grade is an optional country/market-specific grade code for the same title (e.g. a local job-architecture band), also free text. Global Grade is free text, so you\'re not limited to the current codes — type a new one (e.g. G1) if a title needs its own grade (add matching TIG/quota entries for it separately). Add, remove, or retitle rows here; a grade can have more than one title (useful while a rename like this is in progress). Editing this list is a reference change only — it doesn\'t rewrite any employee\'s already-stored title, so reassign specific people from their dossier or the next data load.</div>'+adminListEditor('Roles / Local Grade Titles', STATE.adminConfig.localGrades, ['name','globalGrade','localGrade'], 'localGrades');
   if (tab==='practice') return adminListEditor('Practices', STATE.adminConfig.practices, ['name'], 'practices') + adminListEditor('Sub-Practices', STATE.adminConfig.subPractices, ['name','practice'], 'subPractices', {practice: STATE.adminConfig.practices.map(function(p){return p.name;})});
   if (tab==='contrib') return adminListEditor('Contribution Categories', STATE.adminConfig.contributionCategories, ['name'], 'contributionCategories');
