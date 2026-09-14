@@ -1860,6 +1860,50 @@ function openEligibilityOverrideModal(empId){
   ]);
 }
 
+/* Fields an annual data upload can leave blank (see dataLoadIssuesForCreate/ForUpdate) and that
+   otherwise have no editor anywhere in the app — HR previously had to fix these via a corrected
+   re-upload. Recomputed the same way on save so the "Missing data" badge/risk flag clears itself
+   once every required field is filled in, without waiting for the next upload. */
+function recomputeCoreDataIssues(e){
+  var issues = [];
+  if (!e.ggid) issues.push('Missing GGID');
+  if (!e.name) issues.push('Missing Name');
+  if (!e.region) issues.push('Missing Region');
+  if (!e.globalGrade) issues.push('Missing Global Grade');
+  if (!e.practice) issues.push('Missing Practice');
+  return issues;
+}
+function openEditCoreDetailsModal(empId){
+  var e = emp(empId);
+  var fields = [
+    ['ggid','GGID'], ['name','Name'], ['email','Email'], ['region','Region'], ['country','Country'],
+    ['globalGrade','Global Grade'], ['localGrade','Local Grade'], ['practice','Practice'], ['subPractice','Sub-Practice'],
+    ['supervisor','Supervisor'], ['peopleManager','People Manager']
+  ];
+  var body = (e.dataQualityIssues && e.dataQualityIssues.length ?
+    '<div class="field"><div class="reason-item" style="color:var(--warning);">'+icon('alert',13)+'<span>'+esc(e.dataQualityIssues.join(' · '))+'</span></div></div>' : '')+
+    '<div class="field-row">'+fields.map(function(f){
+      return '<div class="field"><label>'+f[1]+'</label><input type="text" data-core-field="'+f[0]+'" value="'+esc(e[f[0]]||'')+'"/></div>';
+    }).join('')+'</div>';
+  openModal('Edit Core Details · '+(e.ggid||e.name), body, [
+    {label:'Cancel', cls:'btn'},
+    {label:'Save', cls:'btn btn-primary', action:function(){
+      var before = clone(e);
+      fields.forEach(function(f){
+        var input = document.querySelector('[data-core-field="'+f[0]+'"]');
+        e[f[0]] = input.value.trim();
+      });
+      if (!e.firstName && !e.lastName){ e.firstName = e.name.split(' ')[0]||''; e.lastName = e.name.split(' ').slice(1).join(' '); }
+      e.dataQualityIssues = recomputeCoreDataIssues(e);
+      invalidateCases();
+      logAudit('Employee', 'core details', before.ggid+' / '+before.name, e.ggid+' / '+e.name, empId, 'HR manual correction');
+      closeModal();
+      persist('Core details updated'+(e.dataQualityIssues.length? ' — '+e.dataQualityIssues.length+' field(s) still missing' : ''));
+      renderApp();
+    }}
+  ]);
+}
+
 /* ============================= VIEW: CALIBRATION DASHBOARD ============================= */
 /* Forced-distribution quota compliance: actual counts (from the given case list) vs the admin-configured
    caps per Global Grade, always grouped by grade regardless of the dashboard's own Group-by toggle. */
@@ -2063,9 +2107,11 @@ function dossierExecTab(e,c,mgrRec){
     stat('Promotion Recommendation', e.promotionRecommendation?pill('Yes','pill-success'):pill('No','pill-neutral'))+
     stat('Promotion Readiness', e.promotionReadiness)+
     stat('Promotion Eligibility', pill(c.eligibility.status, eligPillClass(c.eligibility.status))+(e.promotionEligibilityOverride?' <span class="table-sub">HR override</span>':''))+
+    (e.dataQualityIssues && e.dataQualityIssues.length ? '<hr class="divider"/><div class="reason-item" style="color:var(--warning);">'+icon('alert',13)+'<span><strong>Missing data:</strong> '+esc(e.dataQualityIssues.join(' · '))+'</span></div>' : '')+
     (isHR() ? '<hr class="divider"/><div style="display:flex;gap:8px;flex-wrap:wrap;">'+
       '<button class="btn btn-sm" data-override-rating="'+e.id+'">'+icon('edit',12)+' Override rating</button>'+
       '<button class="btn btn-sm" data-override="'+e.id+'">'+icon('edit',12)+' Override promotion eligibility</button>'+
+      '<button class="btn btn-sm" data-edit-core="'+e.id+'">'+icon('edit',12)+' Edit core details</button>'+
       '</div>' : '')+
     '</div>';
   html += '<div class="card card-pad"><div class="section-title">Risk indicators</div>'+
@@ -2240,6 +2286,8 @@ function bindDossierActions(e,c){
   if (ratingOvBtn) ratingOvBtn.addEventListener('click', function(){ openRatingOverrideModal(e.id); });
   var eligOvBtn = document.querySelector('[data-override]');
   if (eligOvBtn) eligOvBtn.addEventListener('click', function(){ openEligibilityOverrideModal(e.id); });
+  var editCoreBtn = document.querySelector('[data-edit-core]');
+  if (editCoreBtn) editCoreBtn.addEventListener('click', function(){ openEditCoreDetailsModal(e.id); });
   bindWorkflowActions(e.id);
 }
 
@@ -3256,7 +3304,7 @@ async function parseXlsxWorkbook(arrayBuffer){
   var compact = rows.filter(function(r){ return r != null; });
   if (!compact.length) return [];
   var headerRow = compact[0] || [];
-  var headers = headerRow.map(function(h){ return (h==null?'':String(h)).trim(); });
+  var headers = headerRow.map(resolveDataLoadHeader);
   var dataRows = compact.slice(1).filter(function(r){
     return r && r.some(function(v){ return v!=null && String(v).trim()!==''; });
   });
@@ -3290,7 +3338,7 @@ function csvParse(text){
   if (field.length || row.length){ row.push(field); rows.push(row); }
   rows = rows.filter(function(r){ return !(r.length===1 && r[0]===''); });
   if (!rows.length) return [];
-  var headers = rows[0].map(function(h){ return h.trim(); });
+  var headers = rows[0].map(resolveDataLoadHeader);
   return rows.slice(1).map(function(r){
     var o = {}; headers.forEach(function(h,i){ o[h] = (r[i]!=null?r[i]:'').trim(); }); return o;
   });
@@ -3300,6 +3348,30 @@ function csvStringify(headers, rows){
   return headers.join(',') + '\n' + rows.map(function(r){ return headers.map(function(h){ return csvCell(r[h]); }).join(','); }).join('\n');
 }
 var DATA_LOAD_TEMPLATE_HEADERS = ['ggid','name','email','region','country','globalGrade','localGrade','practice','subPractice','supervisor','peopleManager','priorYearRating','performanceTrack','promotionReadiness','promotionRecommendation','timeInGrade','lpdDate','mandatoryTrainingStatus','learningHoursCompleted','certificationLevel','certificationDate','promotedPriorYear','activeBOTP','botpCompleted','utilization'];
+
+/* A handful of header spellings real HRIS extracts commonly use that don't already match a
+   template key once case/spacing/punctuation is normalized away (see normalizeHeaderKey) —
+   mapped explicitly so an org's own export doesn't have to be renamed column-by-column to match
+   the template. Headers that match a template key by normalization alone (e.g. "Global Grade" /
+   globalGrade, "Sub Practice" / subPractice) need no entry here. */
+var DATA_LOAD_HEADER_ALIASES = {
+  'employeename':'name', 'fullname':'name', 'employeefullname':'name',
+  'emailid':'email', 'emailaddress':'email', 'workemail':'email',
+  'employeeid':'ggid', 'empid':'ggid',
+  'supervisorname':'supervisor', 'supervisorfullname':'supervisor',
+  'peoplemanager':'peopleManager', 'peoplemanagername':'peopleManager', 'managername':'peopleManager'
+};
+function normalizeHeaderKey(h){ return String(h==null?'':h).toLowerCase().replace(/[^a-z0-9]/g,''); }
+/* Resolves one uploaded column header to the template field it represents: an alias match first,
+   then a normalized match against DATA_LOAD_TEMPLATE_HEADERS itself, else the header is left as-is
+   (harmless — it becomes a row property nothing reads, same as before this resolution existed). */
+function resolveDataLoadHeader(h){
+  var norm = normalizeHeaderKey(h);
+  if (!norm) return '';
+  if (DATA_LOAD_HEADER_ALIASES[norm]) return DATA_LOAD_HEADER_ALIASES[norm];
+  var hit = DATA_LOAD_TEMPLATE_HEADERS.filter(function(k){ return normalizeHeaderKey(k)===norm; });
+  return hit.length ? hit[0] : String(h||'').trim();
+}
 
 var claudeDownloads = null;
 function initDownloads(){
