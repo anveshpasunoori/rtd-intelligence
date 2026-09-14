@@ -567,7 +567,20 @@ function clone(o){ return JSON.parse(JSON.stringify(o)); }
 
 var RATINGS = ['Needs Improvement','Succeeding','Exceeding','Exceptional'];
 var RATING_RANK = {'Needs Improvement':0,'Succeeding':1,'Exceeding':2,'Exceptional':3};
-var GRADE_ORDER = ['C1','C2','C3','D1','D2','E','F1','F2','F3','F4'];
+/* Distinct Global Grades, most-junior first, read live off Administration > Roles & Grade Titles
+   instead of a hard-coded list — that screen already promises free-text grades ("type a new one...
+   if a title needs its own grade"), so anything derived from the grade set (quotas, rank
+   comparisons, rule/filter dropdowns) needs to track whatever grades are actually configured rather
+   than a fixed C1-F4 scheme. Order follows first appearance in the roles list, which is how both the
+   seed data and an admin's own edits naturally sort junior to senior. */
+function gradeOrder(){
+  var seen = {}, list = [];
+  (STATE.adminConfig.localGrades||[]).forEach(function(r){
+    var g = r.globalGrade;
+    if (g && !seen[g]){ seen[g] = true; list.push(g); }
+  });
+  return list;
+}
 
 /* The reviewer scope-lock feature (region/local grade/practice visibility ceiling) was removed —
    every viewer now sees the full roster, narrowed only by the sidebar Quick Filters and, separately,
@@ -580,8 +593,8 @@ function scopedEmployees(){ return STATE.employees.filter(matchesQuickFilters); 
    this cycle. Admin-configurable under Administration > Rating & Promotion Quotas. Null = uncapped. */
 if (!STATE.quotaConfig){
   STATE.quotaConfig = {};
-  GRADE_ORDER.forEach(function(g){ STATE.quotaConfig[g] = { promotions:null, 'Needs Improvement':null, 'Succeeding':null, 'Exceeding':null, 'Exceptional':null }; });
-  STATE.quotaConfig['C1'] = { promotions:4, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':5, 'Exceptional':5 };
+  gradeOrder().forEach(function(g){ STATE.quotaConfig[g] = { promotions:null, 'Needs Improvement':null, 'Succeeding':null, 'Exceeding':null, 'Exceptional':null }; });
+  if (STATE.quotaConfig['C1']) STATE.quotaConfig['C1'] = { promotions:4, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':5, 'Exceptional':5 };
 }
 
 function ratingPillClass(r){
@@ -785,7 +798,8 @@ function capRating(rating, cap){
 }
 
 function gradeAtLeast(grade, minGrade){
-  var gi = GRADE_ORDER.indexOf(grade), mi = GRADE_ORDER.indexOf(minGrade);
+  var order = gradeOrder();
+  var gi = order.indexOf(grade), mi = order.indexOf(minGrade);
   if (gi<0||mi<0) return false;
   return gi >= mi;
 }
@@ -1707,7 +1721,7 @@ function viewRTDDashboard(){
   html += filterBar([
     {field:'rating', label:'Rating', options:RATINGS},
     {field:'eligibility', label:'Promotion', options:['Eligible','Eligible With Exception','Not Eligible']},
-    {field:'globalGrade', label:'Grade', options:GRADE_ORDER},
+    {field:'globalGrade', label:'Grade', options:gradeOrder()},
     {field:'peopleManager', label:'People Manager'},
   ], 'rtd');
 
@@ -1903,7 +1917,7 @@ function quotaBadge(actual, quota){
     (over ? pill('+'+(actual-quota)+' over','pill-critical') : (actual===quota ? pill('At cap','pill-warning') : pill('Under','pill-success')));
 }
 function renderQuotaCompliancePanel(cases){
-  var configuredGrades = GRADE_ORDER.filter(function(g){
+  var configuredGrades = gradeOrder().filter(function(g){
     var q = STATE.quotaConfig[g] || {};
     return q.promotions!=null || RATINGS.some(function(r){ return q[r]!=null; });
   });
@@ -2449,7 +2463,7 @@ var PARAM_META = {
   capRating: {type:'select', options:RATINGS}, forcedRating: {type:'select', options:RATINGS},
   allowException: {type:'bool'}, rtdCutoffDate: {type:'date'}, yearEndCutoffDate: {type:'date'},
   requiredReadiness: {type:'select', options:['Ready Now','Ready 1-2 Yrs','Ready 2+ Yrs','Not Ready']},
-  l1MinGrade: {type:'select', options:GRADE_ORDER}, l2MinGrade: {type:'select', options:GRADE_ORDER},
+  l1MinGrade: {type:'select', options:gradeOrder()}, l2MinGrade: {type:'select', options:gradeOrder()},
   allowManualOverride: {type:'bool'}, maxContributionLift: {type:'number'}, blockLiftFromNeedsImprovement: {type:'bool'},
 };
 
@@ -2928,7 +2942,7 @@ function adminQuotaEditor(){
   var html = '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Forced Distribution Quotas by Global Grade</div>'+
     '<div class="section-sub">Set how many promotions and how many of each rating this grade is allowed to hand out this cycle — e.g. C1: 4 promotions, 5 Exceptional, 5 Exceeding, 1 Needs Improvement. Leave a box blank for no cap. These guide the Calibration and Promotion dashboards; the committee still makes the final call.</div>'+
     '<div class="table-scroll"><table><thead><tr><th>Global Grade</th><th>Promotions Allowed</th>'+RATINGS.map(function(r){return '<th>'+r+'</th>';}).join('')+'</tr></thead><tbody>'+
-    GRADE_ORDER.map(function(g){
+    gradeOrder().map(function(g){
       var q = STATE.quotaConfig[g] || {};
       return '<tr><td class="table-name">'+g+'</td>'+
         '<td><input type="number" min="0" data-q-grade="'+g+'" data-q-field="promotions" value="'+(q.promotions!=null?q.promotions:'')+'" placeholder="—" style="width:70px;"/></td>'+
@@ -3027,7 +3041,7 @@ function bindAdminEvents(){
   var saveQuotas = document.getElementById('save-quotas');
   if (saveQuotas) saveQuotas.addEventListener('click', function(){
     var before = clone(STATE.quotaConfig);
-    GRADE_ORDER.forEach(function(g){ STATE.quotaConfig[g] = STATE.quotaConfig[g] || {}; });
+    gradeOrder().forEach(function(g){ STATE.quotaConfig[g] = STATE.quotaConfig[g] || {}; });
     Array.prototype.forEach.call(document.querySelectorAll('[data-q-grade]'), function(inp){
       var g = inp.getAttribute('data-q-grade'), f = inp.getAttribute('data-q-field');
       var v = inp.value.trim();
