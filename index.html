@@ -650,6 +650,15 @@ function localGradeName(code){
   var hit = (STATE.adminConfig.localGrades||[]).filter(function(r){ return r.localGrade===code; })[0];
   return hit ? hit.name : code;
 }
+/* The reverse of localGradeName: an employee record's own localGrade field actually stores the
+   readable title (e.g. "Sr Consultant"), not the code — but STATE.quotaConfig, localGradeOrder(),
+   and the admin quota editor are all keyed by code (e.g. "C1"). Needed anywhere a quota needs to
+   be looked up for a given employee/case. Falls back to the input itself when no title matches
+   (an orphaned/legacy title), same fallback style as localGradeName. */
+function localGradeCodeForName(name){
+  var hit = (STATE.adminConfig.localGrades||[]).filter(function(r){ return r.name===name; })[0];
+  return hit ? hit.localGrade : name;
+}
 
 /* The reviewer scope-lock feature (region/local grade/practice visibility ceiling) was removed —
    every viewer now sees the full roster, narrowed only by the sidebar Quick Filters and, separately,
@@ -658,24 +667,27 @@ function localGradeName(code){
 function isVisible(e){ return !!e; }
 function scopedEmployees(){ return STATE.employees.filter(matchesQuickFilters); }
 
-/* Forced-distribution quotas: how many promotions and how many of each rating a Local Grade may
-   hand out this cycle. Admin-configurable under Administration > Rating & Promotion Quotas.
-   Null = uncapped. Seeded with a sensible default per Local Grade — headcount-sized pools
-   (promotions and the Needs Improvement/Exceeding/Exceptional caps) shrink as seniority rises,
-   with Succeeding left uncapped throughout since it's meant to absorb whoever doesn't land in a
-   more tightly controlled bucket. A grade added later with no matching default just comes up
-   uncapped rather than erroring. */
+/* Forced-distribution quotas: what PERCENTAGE of a Local Grade's population may receive each
+   rating, and what percentage may be promoted, this cycle. Admin-configurable under
+   Administration > Rating & Promotion Quotas. Null = uncapped. Stored as a percentage (not a
+   headcount) so the actual cap tracks the grade's headcount automatically as it changes cycle to
+   cycle — see promotionQuotaExceptions for where the promotions percentage is converted to an
+   actual count. Seeded with a sensible default per Local Grade — the allowed share (promotions
+   and the Needs Improvement/Exceeding/Exceptional caps) shrinks as seniority rises, with
+   Succeeding left uncapped throughout since it's meant to absorb whoever doesn't land in a more
+   tightly controlled bucket. A grade added later with no matching default just comes up uncapped
+   rather than erroring. */
 if (!STATE.quotaConfig){
   STATE.quotaConfig = {};
   var DEFAULT_LOCAL_GRADE_QUOTAS = {
-    'B1': { promotions:5, 'Needs Improvement':2, 'Succeeding':null, 'Exceeding':6, 'Exceptional':2 },
-    'B2': { promotions:4, 'Needs Improvement':2, 'Succeeding':null, 'Exceeding':5, 'Exceptional':2 },
-    'C1': { promotions:4, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':5, 'Exceptional':2 },
-    'C2': { promotions:3, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':4, 'Exceptional':2 },
-    'D1': { promotions:2, 'Needs Improvement':1, 'Succeeding':null, 'Exceeding':3, 'Exceptional':1 },
-    'D2': { promotions:2, 'Needs Improvement':0, 'Succeeding':null, 'Exceeding':2, 'Exceptional':1 },
-    'E1': { promotions:1, 'Needs Improvement':0, 'Succeeding':null, 'Exceeding':2, 'Exceptional':1 },
-    'E2': { promotions:1, 'Needs Improvement':0, 'Succeeding':null, 'Exceeding':1, 'Exceptional':1 },
+    'B1': { promotions:25, 'Needs Improvement':10, 'Succeeding':null, 'Exceeding':30, 'Exceptional':10 },
+    'B2': { promotions:20, 'Needs Improvement':10, 'Succeeding':null, 'Exceeding':25, 'Exceptional':10 },
+    'C1': { promotions:20, 'Needs Improvement':5,  'Succeeding':null, 'Exceeding':25, 'Exceptional':10 },
+    'C2': { promotions:15, 'Needs Improvement':5,  'Succeeding':null, 'Exceeding':20, 'Exceptional':10 },
+    'D1': { promotions:10, 'Needs Improvement':5,  'Succeeding':null, 'Exceeding':15, 'Exceptional':5 },
+    'D2': { promotions:10, 'Needs Improvement':0,  'Succeeding':null, 'Exceeding':10, 'Exceptional':5 },
+    'E1': { promotions:5,  'Needs Improvement':0,  'Succeeding':null, 'Exceeding':10, 'Exceptional':5 },
+    'E2': { promotions:5,  'Needs Improvement':0,  'Succeeding':null, 'Exceeding':5,  'Exceptional':5 },
   };
   localGradeOrder().forEach(function(g){
     STATE.quotaConfig[g] = DEFAULT_LOCAL_GRADE_QUOTAS[g] || { promotions:null, 'Needs Improvement':null, 'Succeeding':null, 'Exceeding':null, 'Exceptional':null };
@@ -2385,6 +2397,12 @@ function openEditCoreDetailsModal(empId){
    exceeds are returned — nothing to flag otherwise. Drives the "Quota Rank" column on the
    Promotions dashboard's candidates table (no separate compliance table anymore). */
 function promotionQuotaExceptions(cases){
+  // Promotions quota is stored as a percentage of the Local Grade's whole population (everyone
+  // in that grade, not just those currently eligible) — e.g. "20%" on a 20-person grade caps
+  // promotions at 4, regardless of how the grade's headcount drifts cycle to cycle. Computed here
+  // rather than stored as a headcount so the cap tracks headcount automatically.
+  var gradeTotalAll = {};
+  cases.forEach(function(c){ var g = c.employee.localGrade; gradeTotalAll[g] = (gradeTotalAll[g]||0)+1; });
   var byGrade = {};
   cases.forEach(function(c){
     if (c.eligibility.status === 'Not Eligible') return;
@@ -2393,22 +2411,25 @@ function promotionQuotaExceptions(cases){
   });
   var out = [];
   Object.keys(byGrade).forEach(function(g){
-    var quota = (STATE.quotaConfig[g]||{}).promotions;
-    if (quota == null) return;
+    // g is the employee-facing title (e.g. "Sr Consultant") — quotaConfig is keyed by that
+    // title's code (e.g. "C1"), same as localGradeOrder()/the admin quota editor.
+    var pct = (STATE.quotaConfig[localGradeCodeForName(g)]||{}).promotions;
+    if (pct == null) return;
+    var quota = Math.round(pct/100 * (gradeTotalAll[g]||0));
     var ranked = byGrade[g].slice().sort(function(a,b){
       if (b.employee.timeInGrade !== a.employee.timeInGrade) return b.employee.timeInGrade - a.employee.timeInGrade;
       var ca = CERT_RANK[a.employee.certificationLevel||'None']||0, cb = CERT_RANK[b.employee.certificationLevel||'None']||0;
       if (cb !== ca) return cb - ca;
       return (b.employee.utilization||0) - (a.employee.utilization||0);
     });
-    if (ranked.length > quota) out.push({ localGrade:g, quota:quota, total:ranked.length, ranked:ranked });
+    if (ranked.length > quota) out.push({ localGrade:g, quota:quota, quotaPct:pct, gradeTotal:gradeTotalAll[g]||0, total:ranked.length, ranked:ranked });
   });
   var order = localGradeOrder();
-  out.sort(function(a,b){ return order.indexOf(a.localGrade) - order.indexOf(b.localGrade); });
+  out.sort(function(a,b){ return order.indexOf(localGradeCodeForName(a.localGrade)) - order.indexOf(localGradeCodeForName(b.localGrade)); });
   return out;
 }
 function promotionOverflowReason(ex, rank, c){
-  return 'Promotion-quota review, '+localGradeName(ex.localGrade)+' ('+ex.localGrade+'): '+ex.total+' promotion-eligible candidate(s) this cycle against a quota of '+ex.quota+'. Ranked by time-in-grade, certification level, and utilization — ranked '+rank+' of '+ex.total+' (TIG '+c.employee.timeInGrade+' yrs, '+(c.employee.certificationLevel||'None')+' cert, '+(c.employee.utilization||0)+'% utilization). Rating capped to a modest bracket rather than advanced this cycle; remains fully promotion-eligible for next cycle.';
+  return 'Promotion-quota review, '+ex.localGrade+' ('+localGradeCodeForName(ex.localGrade)+'): '+ex.total+' promotion-eligible candidate(s) this cycle against a quota of '+ex.quota+' ('+ex.quotaPct+'% of '+ex.gradeTotal+' in this grade). Ranked by time-in-grade, certification level, and utilization — ranked '+rank+' of '+ex.total+' (TIG '+c.employee.timeInGrade+' yrs, '+(c.employee.certificationLevel||'None')+' cert, '+(c.employee.utilization||0)+'% utilization). Rating capped to a modest bracket rather than advanced this cycle; remains fully promotion-eligible for next cycle.';
 }
 function viewCalibrationDashboard(){
   var cases = scopedCases();
@@ -3416,15 +3437,24 @@ function adminLdEditor(){
     '</tbody></table></div><div style="margin-top:14px;"><button class="btn btn-primary btn-sm" id="save-ld">Save L&D hours</button></div></div>';
   return html;
 }
+/* Each cell is a percentage of that Local Grade's whole population this cycle, not a raw
+   headcount — e.g. "20" on C1 means 20% of everyone in C1, so the actual cap moves with the
+   grade's headcount instead of needing a manual update every cycle. See promotionQuotaExceptions
+   for where the Promotions % is converted to an actual count. */
+function quotaPctInput(grade, field, value){
+  return '<div style="display:flex;align-items:center;gap:3px;">'+
+    '<input type="number" min="0" max="100" step="0.1" data-q-grade="'+grade+'" data-q-field="'+esc(field)+'" value="'+(value!=null?value:'')+'" placeholder="—" style="width:64px;"/>'+
+    '<span class="table-sub">%</span></div>';
+}
 function adminQuotaEditor(){
   var html = '<div class="card card-pad"><div class="section-title" style="font-size:14.5px;">Forced Distribution Quotas by Local Grade</div>'+
-    '<div class="section-sub">Set how many promotions and how many of each rating this Local Grade — i.e. this specific title, since two titles can share a Global Grade — is allowed to hand out this cycle — e.g. C1: 4 promotions, 5 Exceeding, 2 Exceptional, 1 Needs Improvement. Leave a box blank for no cap. These guide the Calibration and Promotion dashboards; the committee still makes the final call.</div>'+
+    '<div class="section-sub">Set what percentage of this Local Grade\'s population — i.e. this specific title, since two titles can share a Global Grade — may be promoted or land on each rating this cycle — e.g. C1: 20% promotions, 25% Exceeding, 10% Exceptional, 5% Needs Improvement. The actual headcount cap is computed from this grade\'s current population, so it stays correct as headcount changes. Leave a box blank for no cap. These guide the Calibration and Promotion dashboards; the committee still makes the final call.</div>'+
     '<div class="table-scroll"><table><thead><tr><th>Local Grade</th><th>Promotions Allowed</th>'+RATINGS.map(function(r){return '<th>'+r+'</th>';}).join('')+'</tr></thead><tbody>'+
     localGradeOrder().map(function(g){
       var q = STATE.quotaConfig[g] || {};
       return '<tr><td class="table-name">'+g+'</td>'+
-        '<td><input type="number" min="0" data-q-grade="'+g+'" data-q-field="promotions" value="'+(q.promotions!=null?q.promotions:'')+'" placeholder="—" style="width:70px;"/></td>'+
-        RATINGS.map(function(r){ return '<td><input type="number" min="0" data-q-grade="'+g+'" data-q-field="'+esc(r)+'" value="'+(q[r]!=null?q[r]:'')+'" placeholder="—" style="width:70px;"/></td>'; }).join('')+
+        '<td>'+quotaPctInput(g, 'promotions', q.promotions)+'</td>'+
+        RATINGS.map(function(r){ return '<td>'+quotaPctInput(g, r, q[r])+'</td>'; }).join('')+
         '</tr>';
     }).join('')+
     '</tbody></table></div>'+
@@ -3467,7 +3497,9 @@ var ADMIN_IMPORT_SHEETS = {
     exportRows:function(){ return STATE.adminConfig.contributionCategories.map(function(r){ return [r.name]; }); } },
   quotas: { label:'Rating & Promotion Quotas', sheetName:'Quotas', headers:['localGrade','promotions','needsImprovement','succeeding','exceeding','exceptional'],
     build:function(rows){
-      var num = function(v){ return (v==null||v==='') ? null : (parseInt(v,10)||0); };
+      // Values are a percentage of the grade's population (0-100), not a headcount — see
+      // promotionQuotaExceptions and the admin editor above.
+      var num = function(v){ return (v==null||v==='') ? null : Math.min(100, Math.max(0, parseFloat(v)||0)); };
       var out = {};
       rows.forEach(function(r){ if (!r.localGrade) return; out[r.localGrade] = { promotions:num(r.promotions), 'Needs Improvement':num(r.needsImprovement), 'Succeeding':num(r.succeeding), 'Exceeding':num(r.exceeding), 'Exceptional':num(r.exceptional) }; });
       return out;
@@ -3515,7 +3547,7 @@ function viewAdminImport(){
   var html = '<div class="card card-pad" style="margin-bottom:16px;"><div class="section-title" style="font-size:14.5px;">Export current admin data</div>'+
     '<div class="section-sub" style="margin-bottom:12px;">Every category below as one workbook, in the same layout Import expects — a starting point to edit offline and re-upload, or just a record of what\'s configured today.</div>'+
     '<button class="btn btn-sm" id="admin-export-btn">'+icon('folder',12)+' Export current admin data (Excel)</button></div>'+
-    '<div class="section-sub" style="margin-bottom:10px;">Upload one Excel workbook to bulk-replace admin reference data — put each category on its own named sheet tab (case-insensitive, spacing doesn\'t matter): <strong>Region Types</strong> (name), <strong>Regions</strong> (name, regionType), <strong>Roles</strong> (name, globalGrade, localGrade, region), <strong>Practices</strong> (name), <strong>Sub Practices</strong> (name, practice), <strong>Contribution Categories</strong> (name), <strong>Quotas</strong> (localGrade, promotions, needsImprovement, succeeding, exceeding, exceptional), <strong>LD Hours</strong> (country, practice, localGrade, hours). Only sheets present in the workbook are replaced — leave a tab out to leave that category as-is.</div>'+
+    '<div class="section-sub" style="margin-bottom:10px;">Upload one Excel workbook to bulk-replace admin reference data — put each category on its own named sheet tab (case-insensitive, spacing doesn\'t matter): <strong>Region Types</strong> (name), <strong>Regions</strong> (name, regionType), <strong>Roles</strong> (name, globalGrade, localGrade, region), <strong>Practices</strong> (name), <strong>Sub Practices</strong> (name, practice), <strong>Contribution Categories</strong> (name), <strong>Quotas</strong> (localGrade, promotions, needsImprovement, succeeding, exceeding, exceptional — each a percentage 0-100, not a headcount), <strong>LD Hours</strong> (country, practice, localGrade, hours). Only sheets present in the workbook are replaced — leave a tab out to leave that category as-is.</div>'+
     '<div class="card card-pad"><input type="file" id="admin-import-file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" style="font-size:12.5px;"/>'+
     '<div id="admin-import-preview" style="margin-top:14px;"></div></div>';
   document.getElementById('admin-tab-content').innerHTML = html;
@@ -3663,7 +3695,7 @@ function bindAdminEvents(){
     Array.prototype.forEach.call(document.querySelectorAll('[data-q-grade]'), function(inp){
       var g = inp.getAttribute('data-q-grade'), f = inp.getAttribute('data-q-field');
       var v = inp.value.trim();
-      STATE.quotaConfig[g][f] = v==='' ? null : Math.max(0, parseInt(v,10)||0);
+      STATE.quotaConfig[g][f] = v==='' ? null : Math.min(100, Math.max(0, parseFloat(v)||0));
     });
     logAudit('Administration', 'Rating & Promotion Quotas', JSON.stringify(before), JSON.stringify(STATE.quotaConfig), null, 'Quotas Updated');
     persist('Quotas updated');
