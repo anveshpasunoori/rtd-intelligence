@@ -1995,7 +1995,7 @@ function viewRTDDashboard(){
     }).join('')+
     '</tbody></table>'+(filtered.length?'':'<div class="empty-state">No cases match the current filters.</div>')+'</div>';
 
-  html += '<div class="grid-main-side">'+mainHtml+insightsHtml+'</div>';
+  html += '<div class="grid-main-side"><div style="min-width:0;">'+mainHtml+'</div>'+insightsHtml+'</div>';
 
   document.getElementById('view').innerHTML = html;
   bindFilterBar('rtd', function(){ viewRTDDashboard(); });
