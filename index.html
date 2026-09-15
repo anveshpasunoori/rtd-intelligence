@@ -134,11 +134,9 @@
     padding: 20px 18px 14px 18px;
   }
   .brand-mark {
-    width: 30px; height: 30px; border-radius: 8px;
-    background: linear-gradient(155deg, var(--accent), var(--special));
+    width: 30px; height: 30px;
     display: flex; align-items: center; justify-content: center;
-    color: #fff; flex-shrink: 0;
-    box-shadow: var(--shadow-sm);
+    flex-shrink: 0;
   }
   .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
   .brand-text strong { font-family: var(--font-display); font-size: 14.5px; font-weight: 700; letter-spacing: -0.01em; }
@@ -711,6 +709,24 @@ function confidenceBadge(conf){
 function dataQualityBadge(emp){
   if (!emp.dataQualityIssues || !emp.dataQualityIssues.length) return '';
   return ' <span class="pill pill-warning" title="'+esc(emp.dataQualityIssues.join(' · '))+'" style="margin-left:6px;">'+icon('alert',11)+' Missing data</span>';
+}
+
+/* ============================= BRAND MARK ============================= */
+/* The sidebar logo — a blue gradient leaf/spade shape with a rising trend line through it,
+   matching the RTD Intelligence brandmark. A one-off inline SVG (with its own gradient fill)
+   rather than a size/color from icon() below, since it needs a fixed brand gradient that stays
+   the same in both light and dark mode, not a stroke tinted by currentColor. */
+function brandMarkSvg(size){
+  size = size || 30;
+  return '<svg width="'+size+'" height="'+size+'" viewBox="0 0 32 32" fill="none">'+
+    '<defs><linearGradient id="brandGrad" x1="5" y1="2" x2="26" y2="30" gradientUnits="userSpaceOnUse">'+
+    '<stop offset="0" stop-color="#1c4e9c"/><stop offset="1" stop-color="#5fc8f0"/>'+
+    '</linearGradient></defs>'+
+    '<path d="M16 2C16 2 5 12.5 5 19.5C5 25 9.7 29 14.3 29C13.1 30.4 11.2 31 9 31H23C20.8 31 18.9 30.4 17.7 29C22.3 29 27 25 27 19.5C27 12.5 16 2 16 2Z" fill="url(#brandGrad)"/>'+
+    '<polyline points="9.5,21 13.5,17.5 17.5,19 21.5,11.5" fill="none" stroke="#eaf6ff" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>'+
+    '<circle cx="9.5" cy="21" r="1.5" fill="#eaf6ff"/><circle cx="13.5" cy="17.5" r="1.5" fill="#eaf6ff"/>'+
+    '<circle cx="17.5" cy="19" r="1.5" fill="#eaf6ff"/><circle cx="21.5" cy="11.5" r="1.5" fill="#eaf6ff"/>'+
+    '</svg>';
 }
 
 /* ============================= ICONS ============================= */
@@ -1499,7 +1515,7 @@ function renderSidebar(){
   var route = currentRoute();
   var top = route.split('/')[0];
   var html = '<div class="brand">'+
-    '<div class="brand-mark">'+icon('shield',18)+'</div>'+
+    '<div class="brand-mark">'+brandMarkSvg(30)+'</div>'+
     '<div class="brand-text"><strong>RTD Intelligence</strong><span>Insurance Practice</span></div>'+
     '<button class="btn btn-icon sidebar-close-btn" id="sidebar-close-btn" title="Close menu" style="margin-left:auto;">'+icon('x',15)+'</button>'+
     '</div>'+
