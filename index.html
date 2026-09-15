@@ -4,96 +4,99 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>RTD Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <style>
   /* ============================= DESIGN TOKENS ============================= */
   :root {
     color-scheme: light;
     --bg: #ffffff;
-    --bg-elevated: #f5f5f7;
+    --bg-elevated: #f1f5f9;
     --surface: #ffffff;
     --surface-raised: #ffffff;
-    --border: #d2d2d7;
-    --border-soft: #e5e5ea;
-    --text-primary: #1d1d1f;
-    --text-secondary: #6e6e73;
-    --text-tertiary: #86868b;
-    --accent: #0071e3;
-    --accent-hover: #0077ed;
-    --accent-soft: #e8f1fd;
+    --border: #e2e8f0;
+    --border-soft: #eef2f7;
+    --text-primary: #0f172a;
+    --text-secondary: #64748b;
+    --text-tertiary: #94a3b8;
+    --accent: #2563eb;
+    --accent-hover: #1d4ed8;
+    --accent-soft: #dbeafe;
     --accent-contrast: #ffffff;
-    --success: #1f8a4c;
-    --success-soft: #e6f6ec;
-    --warning: #b9660a;
-    --warning-soft: #fdf1de;
-    --critical: #d3352c;
-    --critical-soft: #fbe9e7;
-    --special: #5e5ce6;
-    --special-soft: #edecfb;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,0.05), 0 1px 1px rgba(0,0,0,0.03);
-    --shadow-md: 0 4px 16px rgba(0,0,0,0.07), 0 1px 3px rgba(0,0,0,0.05);
-    --shadow-lg: 0 12px 32px rgba(0,0,0,0.10), 0 2px 8px rgba(0,0,0,0.05);
-    --radius-sm: 8px;
-    --radius-md: 12px;
-    --radius-lg: 16px;
-    --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
-    --font-text: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --success: #16a34a;
+    --success-soft: #dcfce7;
+    --warning: #d97706;
+    --warning-soft: #fef3c7;
+    --critical: #dc2626;
+    --critical-soft: #fee2e2;
+    --special: #7c3aed;
+    --special-soft: #ede9fe;
+    --shadow-sm: 0 1px 2px rgba(15,23,42,0.04), 0 1px 1px rgba(15,23,42,0.03);
+    --shadow-md: 0 8px 20px rgba(15,23,42,0.08), 0 2px 6px rgba(15,23,42,0.04);
+    --shadow-lg: 0 20px 48px rgba(15,23,42,0.14), 0 4px 14px rgba(15,23,42,0.06);
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 20px;
+    --font-display: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    --font-text: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
     --font-mono: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
       color-scheme: dark;
-      --bg: #000000;
-      --bg-elevated: #1c1c1e;
-      --surface: #1c1c1e;
-      --surface-raised: #232325;
-      --border: #38383c;
-      --border-soft: #2c2c2e;
-      --text-primary: #f5f5f7;
-      --text-secondary: #a1a1a6;
-      --text-tertiary: #86868b;
-      --accent: #0a84ff;
-      --accent-hover: #3399ff;
-      --accent-soft: #0a2540;
+      --bg: #0b1120;
+      --bg-elevated: #182338;
+      --surface: #111a2e;
+      --surface-raised: #182338;
+      --border: #26314a;
+      --border-soft: #1a2438;
+      --text-primary: #f1f5f9;
+      --text-secondary: #94a3b8;
+      --text-tertiary: #64748b;
+      --accent: #3b82f6;
+      --accent-hover: #60a5fa;
+      --accent-soft: rgba(59,130,246,0.18);
       --accent-contrast: #ffffff;
-      --success: #32d158;
-      --success-soft: #0f2b18;
-      --warning: #ff9f0a;
-      --warning-soft: #33220a;
-      --critical: #ff453a;
-      --critical-soft: #3a1512;
-      --special: #7d7aff;
-      --special-soft: #1f1e3d;
+      --success: #22c55e;
+      --success-soft: rgba(34,197,94,0.16);
+      --warning: #f59e0b;
+      --warning-soft: rgba(245,158,11,0.16);
+      --critical: #ef4444;
+      --critical-soft: rgba(239,68,68,0.16);
+      --special: #8b5cf6;
+      --special-soft: rgba(139,92,246,0.18);
       --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
-      --shadow-md: 0 4px 16px rgba(0,0,0,0.45);
-      --shadow-lg: 0 12px 32px rgba(0,0,0,0.55);
+      --shadow-md: 0 8px 20px rgba(0,0,0,0.45);
+      --shadow-lg: 0 20px 48px rgba(0,0,0,0.55);
     }
   }
   :root[data-theme="dark"] {
     color-scheme: dark;
-    --bg: #000000;
-    --bg-elevated: #1c1c1e;
-    --surface: #1c1c1e;
-    --surface-raised: #232325;
-    --border: #38383c;
-    --border-soft: #2c2c2e;
-    --text-primary: #f5f5f7;
-    --text-secondary: #a1a1a6;
-    --text-tertiary: #86868b;
-    --accent: #0a84ff;
-    --accent-hover: #3399ff;
-    --accent-soft: #0a2540;
+    --bg: #0b1120;
+    --bg-elevated: #182338;
+    --surface: #111a2e;
+    --surface-raised: #182338;
+    --border: #26314a;
+    --border-soft: #1a2438;
+    --text-primary: #f1f5f9;
+    --text-secondary: #94a3b8;
+    --text-tertiary: #64748b;
+    --accent: #3b82f6;
+    --accent-hover: #60a5fa;
+    --accent-soft: rgba(59,130,246,0.18);
     --accent-contrast: #ffffff;
-    --success: #32d158;
-    --success-soft: #0f2b18;
-    --warning: #ff9f0a;
-    --warning-soft: #33220a;
-    --critical: #ff453a;
-    --critical-soft: #3a1512;
-    --special: #7d7aff;
-    --special-soft: #1f1e3d;
+    --success: #22c55e;
+    --success-soft: rgba(34,197,94,0.16);
+    --warning: #f59e0b;
+    --warning-soft: rgba(245,158,11,0.16);
+    --critical: #ef4444;
+    --critical-soft: rgba(239,68,68,0.16);
+    --special: #8b5cf6;
+    --special-soft: rgba(139,92,246,0.18);
     --shadow-sm: 0 1px 2px rgba(0,0,0,0.4);
-    --shadow-md: 0 4px 16px rgba(0,0,0,0.45);
-    --shadow-lg: 0 12px 32px rgba(0,0,0,0.55);
+    --shadow-md: 0 8px 20px rgba(0,0,0,0.45);
+    --shadow-lg: 0 20px 48px rgba(0,0,0,0.55);
   }
 
   * { box-sizing: border-box; }
@@ -264,11 +267,12 @@
   .kpi-card-v2 { display: flex; flex-direction: column; }
   .kpi-card-v2 .kpi-top { display: flex; align-items: center; justify-content: space-between; }
   .kpi-icon-badge { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
-  .kpi-icon-badge.badge-accent { background: var(--accent-soft); color: var(--accent); }
-  .kpi-icon-badge.badge-success { background: var(--success-soft); color: var(--success); }
-  .kpi-icon-badge.badge-warning { background: var(--warning-soft); color: var(--warning); }
-  .kpi-icon-badge.badge-critical { background: var(--critical-soft); color: var(--critical); }
-  .kpi-icon-badge.badge-special { background: var(--special-soft); color: var(--special); }
+  .icon-badge-round { width: 26px; height: 26px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .kpi-icon-badge.badge-accent, .icon-badge-round.badge-accent { background: var(--accent-soft); color: var(--accent); }
+  .kpi-icon-badge.badge-success, .icon-badge-round.badge-success { background: var(--success-soft); color: var(--success); }
+  .kpi-icon-badge.badge-warning, .icon-badge-round.badge-warning { background: var(--warning-soft); color: var(--warning); }
+  .kpi-icon-badge.badge-critical, .icon-badge-round.badge-critical { background: var(--critical-soft); color: var(--critical); }
+  .kpi-icon-badge.badge-special, .icon-badge-round.badge-special { background: var(--special-soft); color: var(--special); }
   .kpi-card-v2 .kpi-value2 { font-size: 27px; font-weight: 700; font-family: var(--font-display); letter-spacing: -0.02em; margin-top: 12px; }
   .kpi-card-v2 .kpi-label2 { font-size: 12.5px; color: var(--text-secondary); font-weight: 600; margin-top: 2px; }
   .kpi-card-v2 .kpi-sub2 { font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px; }
@@ -359,7 +363,7 @@
   .chip-filter.active { background: var(--accent); border-color: var(--accent); color: #fff; }
   .filter-bar { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; align-items: center; }
   .filter-bar select {
-    font-size: 12.5px; padding: 6px 10px; border-radius: 8px; border: 1px solid var(--border);
+    font-size: 12.5px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border);
     background: var(--surface); color: var(--text-primary); font-family: var(--font-text);
   }
 
@@ -1295,6 +1299,50 @@ function caseFor(id){ return fullCase(emp(id)); }
 function scopedCases(){ return allCases().filter(function(c){ return matchesQuickFilters(c.employee); }); }
 
 /* ============================= CHART PRIMITIVES (inline SVG) ============================= */
+/* A literal funnel — stacked trapezoid bands narrowing top to bottom, each band's width scaled to
+   its value relative to the first (widest) stage. A band with 0 value still renders a thin sliver
+   rather than collapsing to nothing, so a fully-empty stage stays visible instead of vanishing. */
+function svgFunnelChart(data, opts){
+  opts = opts || {};
+  var w = opts.width || 220, h = opts.height || 190, pad = 8, gap = 5;
+  var n = data.length;
+  var maxV = Math.max.apply(null, data.map(function(d){return d.value;}).concat([1]));
+  var minFrac = 0.16;
+  var widths = data.map(function(d){
+    var f = maxV ? d.value/maxV : 0;
+    return Math.max(f, d.value>0 ? minFrac : minFrac*0.5) * (w - pad*2);
+  });
+  var bandH = (h - gap*(n-1)) / n;
+  var cx = w/2;
+  var bands = data.map(function(d,i){
+    var topW = widths[i];
+    var botW = i < n-1 ? widths[i+1] : widths[i]*0.86;
+    var yTop = i*(bandH+gap), yBot = yTop+bandH;
+    var x1=cx-topW/2, x2=cx+topW/2, x3=cx+botW/2, x4=cx-botW/2;
+    return '<path d="M'+x1+','+yTop+' L'+x2+','+yTop+' L'+x3+','+yBot+' L'+x4+','+yBot+' Z" fill="'+(d.color||'var(--accent)')+'"/>';
+  }).join('');
+  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" preserveAspectRatio="xMidYMid meet">'+bands+'</svg>';
+}
+/* Legend rows alongside the funnel above — percentage of the first (widest) stage, the raw count,
+   and the stage label, each tagged with the same color as its band. */
+function funnelLegendList(data){
+  // Percentage is of the largest stage present, not necessarily the first — these stages are
+  // independent criteria (e.g. "Ready Now" readiness vs. "Recommended"), not a strict funnel
+  // where each step is a subset of the last, so a later stage can honestly outnumber an earlier
+  // one. Sizing against the max keeps every percentage <=100% and matches how the bands are
+  // actually drawn, instead of a "% of stage one" figure that can run past 100.
+  var maxV = Math.max.apply(null, data.map(function(d){ return d.value; }).concat([1]));
+  return '<div style="display:flex;flex-direction:column;gap:12px;justify-content:center;height:100%;">'+
+    data.map(function(d){
+      var pct = maxV ? Math.round(d.value/maxV*100) : 0;
+      return '<div style="display:flex;align-items:flex-start;gap:8px;">'+
+        '<span style="width:10px;height:10px;border-radius:3px;background:'+(d.color||'var(--accent)')+';flex-shrink:0;margin-top:3px;"></span>'+
+        '<div><div style="font-size:13px;font-weight:700;">'+pct+'% <span class="table-sub" style="font-weight:600;">('+d.value+')</span></div>'+
+        '<div class="table-sub">'+esc(d.label)+'</div></div>'+
+        '</div>';
+    }).join('')+
+    '</div>';
+}
 function svgBarChart(data, opts){
   // data: [{label, value, color}]
   opts = opts || {};
@@ -1825,6 +1873,13 @@ function kpiTile(label, value, iconHtml, delta){
 /* Icon-badge KPI card: colored icon chip, big value, label, and an optional sub-line (plain text
    or a mini progress bar via miniProgressBar). `clickAttr`, when given, makes the whole card a
    button that toggles a drill-down filter — the card renders a chevron and highlights active. */
+/* Small colored circular icon badge for a Key Insights row — same accent/success/warning/critical/
+   special palette as the KPI cards, just round instead of rounded-square, so a reason-item reads
+   as a status at a glance instead of a flat gray dot. */
+function statusIcon(name, colorClass, size){
+  size = size || 26;
+  return '<span class="icon-badge-round badge-'+colorClass+'" style="width:'+size+'px;height:'+size+'px;">'+icon(name, Math.round(size*0.54))+'</span>';
+}
 function kpiCardV2(label, value, iconHtml, colorClass, subHtml, clickAttr, active){
   return '<div class="card card-pad kpi-card-v2'+(clickAttr?' clickable-kpi':'')+(active?' kpi-active':'')+'"'+(clickAttr?' '+clickAttr:'')+'>'+
     '<div class="kpi-top"><div class="kpi-icon-badge badge-'+colorClass+'">'+iconHtml+'</div>'+
@@ -1954,9 +2009,9 @@ function viewRTDDashboard(){
   var insightsHtml = '<div class="card card-pad">'+
     '<div class="section-title" style="font-size:15px;">Key insights</div>'+
     '<div class="reason-list" style="margin-top:10px;">'+
-    '<div class="reason-item">'+icon('check',14)+'<span><strong>'+eligibleN+'</strong> employee'+(eligibleN===1?' is':'s are')+' promotion eligible<div class="table-sub">'+(totalCases?Math.round(eligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
-    '<div class="reason-item">'+icon('alert',14)+'<span><strong>'+notEligibleN+'</strong> employee'+(notEligibleN===1?' has':'s have')+' blockers<div class="table-sub">'+(totalCases?Math.round(notEligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
-    '<div class="reason-item">'+icon('star',14)+'<span><strong>Average confidence score</strong>'+miniProgressBar(avgConfidence)+'</span></div>'+
+    '<div class="reason-item">'+statusIcon('check','success')+'<span><strong>'+eligibleN+'</strong> employee'+(eligibleN===1?' is':'s are')+' promotion eligible<div class="table-sub">'+(totalCases?Math.round(eligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
+    '<div class="reason-item">'+statusIcon('alert','critical')+'<span><strong>'+notEligibleN+'</strong> employee'+(notEligibleN===1?' has':'s have')+' blockers<div class="table-sub">'+(totalCases?Math.round(notEligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
+    '<div class="reason-item">'+statusIcon('star','special')+'<span><strong>Average confidence score</strong>'+miniProgressBar(avgConfidence)+'</span></div>'+
     '</div>'+
     (topBlockers.length ? '<hr class="divider"/><div class="section-title" style="font-size:14px;">Top blockers</div><div style="margin-top:6px;">'+
       topBlockers.map(function(b){ return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px;"><span>'+esc(b.label)+'</span>'+pill(String(b.count),'pill-neutral')+'</div>'; }).join('')+
@@ -2095,15 +2150,19 @@ function viewPromotionDashboard(){
   readyAndEligible.forEach(function(c){ var p=c.employee.practice; practiceCounts[p]=(practiceCounts[p]||0)+1; });
   var topPractice = Object.keys(practiceCounts).map(function(p){ return {practice:p, count:practiceCounts[p]}; }).sort(function(a,b){ return b.count-a.count; })[0];
 
+  var funnelData = funnel.map(function(f,i){ return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--border)'][i]}; });
   var funnelHtml = '<div class="card card-pad"><div class="section-title" style="font-size:15px;">Promotion funnel</div><div class="section-sub">From recommendation through system eligibility determination</div>'+
-    svgBarChart(funnel.map(function(f,i){return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--warning)'][i]};}),{height:190})+'</div>';
+    '<div style="display:flex;gap:12px;align-items:center;margin-top:6px;">'+
+    '<div style="flex:0 0 42%;">'+svgFunnelChart(funnelData,{height:170})+'</div>'+
+    '<div style="flex:1;min-width:0;">'+funnelLegendList(funnelData)+'</div>'+
+    '</div></div>';
 
   var insightsHtml = '<div class="card card-pad">'+
     '<div class="section-title" style="font-size:15px;">Key insights</div>'+
     '<div class="reason-list" style="margin-top:10px;">'+
-    '<div class="reason-item">'+icon('check',14)+'<span><strong>'+readyAndEligible.length+'</strong> employee'+(readyAndEligible.length===1?' is':'s are')+' promotion-ready and eligible for promotion</span></div>'+
-    '<div class="reason-item">'+icon('alert',14)+'<span><strong>'+notEligibleCount+'</strong> employee'+(notEligibleCount===1?' currently has':'s currently have')+' eligibility blockers</span></div>'+
-    '<div class="reason-item">'+icon(exceptionCount?'alert':'check',14)+'<span>'+(exceptionCount? '<strong>'+exceptionCount+'</strong> employee'+(exceptionCount===1?' needs':'s need')+' exception approval' : 'No exception approvals required')+'</span></div>'+
+    '<div class="reason-item">'+statusIcon('check','success')+'<span><strong>'+readyAndEligible.length+'</strong> employee'+(readyAndEligible.length===1?' is':'s are')+' promotion-ready and eligible for promotion</span></div>'+
+    '<div class="reason-item">'+statusIcon('alert','critical')+'<span><strong>'+notEligibleCount+'</strong> employee'+(notEligibleCount===1?' currently has':'s currently have')+' eligibility blockers</span></div>'+
+    '<div class="reason-item">'+statusIcon(exceptionCount?'alert':'check', exceptionCount?'warning':'success')+'<span>'+(exceptionCount? '<strong>'+exceptionCount+'</strong> employee'+(exceptionCount===1?' needs':'s need')+' exception approval' : 'No exception approvals required')+'</span></div>'+
     '</div>'+
     (topPractice ? '<hr class="divider"/><div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Top practice by readiness</div>'+
       '<div class="reason-item" style="justify-content:space-between;"><span style="font-weight:700;">'+esc(topPractice.practice)+'</span><span class="table-sub">'+topPractice.count+' candidate'+(topPractice.count===1?'':'s')+'</span></div>' : '')+
