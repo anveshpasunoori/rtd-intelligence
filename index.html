@@ -529,15 +529,20 @@ var UI = { filters: {}, sort: {}, modal: null, search: '' };
    viewer can pick a different role on the same shared page. This is a UI-level convenience, not a
    security boundary: there is no backend or login here, so it restricts what the app *shows*, not what a
    determined user could inspect in devtools. */
+/* theme defaults to "light" explicitly rather than following the OS/browser's own dark-mode
+   setting — a viewer whose system happens to be in dark mode should still see the app the way it
+   was designed to look until they deliberately flip the switch, not silently inherit dark. */
 function loadPrefs(){
   try{
     var raw = localStorage.getItem('rtd_viewer_prefs_v1');
-    if (raw){ var p = JSON.parse(raw); if (p && p.role) return {role:p.role, userId:p.userId||null}; }
+    if (raw){ var p = JSON.parse(raw); if (p && p.role) return {role:p.role, userId:p.userId||null, theme:p.theme==='dark'?'dark':'light'}; }
   }catch(e){}
-  return { role:'RTD Reviewer', userId:null };
+  return { role:'RTD Reviewer', userId:null, theme:'light' };
 }
 function savePrefs(){ try{ localStorage.setItem('rtd_viewer_prefs_v1', JSON.stringify(PREFS)); }catch(e){} }
 var PREFS = loadPrefs();
+function applyTheme(){ document.documentElement.setAttribute('data-theme', PREFS.theme==='dark'?'dark':'light'); }
+applyTheme();
 function isHR(){ return PREFS.role === 'HR Admin'; }
 /* Signing in from the Account page (or being provisioned under Administration → Users &
    Permissions) is the whole identity layer this app has — no passwords, no backend. When nobody
@@ -727,6 +732,8 @@ function icon(name, size){
     audit: '<path d="M9 2h6l1 3H8l1-3z"/><rect x="4" y="5" width="16" height="17" rx="2"/><path d="M8 11h8M8 15h8M8 19h5"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>',
     chevronRight: '<path d="M9 6l6 6-6 6"/>',
+    sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
+    moon: '<path d="M21 12.8A9 9 0 1111.2 3 7 7 0 0021 12.8z"/>',
     star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
     chevronDown: '<path d="M6 9l6 6 6-6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
@@ -1631,6 +1638,7 @@ function renderTopbar(sub){
     '<div class="crumb">'+esc(label)+(sub?' <span class="sub">/ '+esc(sub)+'</span>':'')+'</div>'+
     '<div class="spacer"></div>'+
     '<div class="search-box">'+icon('search',14)+'<input id="global-search" type="text" placeholder="Search name, GGID, practice…" value="'+esc(UI.search)+'"/></div>'+
+    '<button class="btn btn-icon" id="theme-toggle-btn" title="'+(PREFS.theme==='dark'?'Switch to light mode':'Switch to dark mode')+'">'+icon(PREFS.theme==='dark'?'sun':'moon',15)+'</button>'+
     (isHR() ? '<div class="topbar-admin-wrap">'+
       '<button class="btn btn-sm topbar-admin-btn'+(route==='admin'?' active':'')+'" id="topbar-admin-btn" title="Administration">'+icon('settings',14)+'<span>Administration</span><span class="admin-chevron">'+icon('chevronDown',12)+'</span></button>'+
       '<div class="admin-dropdown" id="admin-dropdown-menu">'+ADMIN_TABS.map(function(t){
@@ -1643,6 +1651,10 @@ function renderTopbar(sub){
     '</div>';
   document.getElementById('sidebar-toggle-btn').addEventListener('click', toggleSidebar);
   document.getElementById('topbar-profile-btn').addEventListener('click', function(){ go('account'); });
+  document.getElementById('theme-toggle-btn').addEventListener('click', function(){
+    PREFS.theme = PREFS.theme==='dark' ? 'light' : 'dark';
+    savePrefs(); applyTheme(); renderTopbar(sub);
+  });
   var topbarAdminBtn = document.getElementById('topbar-admin-btn');
   // Administration in the topbar is a dropdown trigger, not a direct link: clicking it just
   // reveals the list of Administration pages (each its own route — see ADMIN_TABS); picking one
