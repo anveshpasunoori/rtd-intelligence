@@ -261,10 +261,30 @@
   .kpi-tile .kpi-delta.pos { color: var(--success); }
   .kpi-tile .kpi-delta.neg { color: var(--critical); }
 
+  /* Icon-badge KPI card style (RTD Review / Promotions) — colored icon chip top-left, big value,
+     label, and an optional one-line sub (plain text or a mini progress bar). */
+  .kpi-card-v2 { display: flex; flex-direction: column; }
+  .kpi-card-v2 .kpi-top { display: flex; align-items: center; justify-content: space-between; }
+  .kpi-icon-badge { width: 34px; height: 34px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .kpi-icon-badge.badge-accent { background: var(--accent-soft); color: var(--accent); }
+  .kpi-icon-badge.badge-success { background: var(--success-soft); color: var(--success); }
+  .kpi-icon-badge.badge-warning { background: var(--warning-soft); color: var(--warning); }
+  .kpi-icon-badge.badge-critical { background: var(--critical-soft); color: var(--critical); }
+  .kpi-icon-badge.badge-special { background: var(--special-soft); color: var(--special); }
+  .kpi-card-v2 .kpi-value2 { font-size: 27px; font-weight: 700; font-family: var(--font-display); letter-spacing: -0.02em; margin-top: 12px; }
+  .kpi-card-v2 .kpi-label2 { font-size: 12.5px; color: var(--text-secondary); font-weight: 600; margin-top: 2px; }
+  .kpi-card-v2 .kpi-sub2 { font-size: 11.5px; color: var(--text-tertiary); margin-top: 6px; }
+  .kpi-card-v2.clickable-kpi { cursor: pointer; transition: box-shadow .15s; }
+  .kpi-card-v2.clickable-kpi:hover { box-shadow: var(--shadow-md); }
+  .kpi-card-v2.kpi-active { border-color: var(--accent); }
+  .mini-progress-track { height: 5px; border-radius: 3px; background: var(--border-soft); overflow: hidden; margin-top: 6px; }
+  .mini-progress-fill { height: 100%; border-radius: 3px; }
+
   .grid-2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
   .grid-2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  @media (max-width: 980px) { .grid-2, .grid-2-eq, .grid-3 { grid-template-columns: 1fr; } }
+  .grid-main-side { display: grid; grid-template-columns: 2.2fr 1fr; gap: 16px; align-items: start; }
+  @media (max-width: 980px) { .grid-2, .grid-2-eq, .grid-3, .grid-main-side { grid-template-columns: 1fr; } }
 
   .pill {
     display: inline-flex; align-items: center; gap: 5px;
@@ -680,34 +700,6 @@ function confidenceBadge(conf){
   var tip = conf.reasons.join(' ');
   return '<span class="pill '+confidencePillClass(conf.level)+'" title="'+esc(tip)+'" style="margin-left:6px;">'+conf.score+'% '+esc(conf.level)+'</span>';
 }
-/* Sub-line shown directly under a case's Rating pill: how confident the rules engine is in
-   that rating, as a single percentage, in place of a separate "AI Recommended Rating" column
-   that could show a whole different rating value. When HR has overridden the rating, the
-   confidence score still reflects the engine's own (different) recommendation — not the human
-   override — so the line says so explicitly rather than implying the override carries that score. */
-function ratingConfidenceSubline(c){
-  var conf = c.ratingConfidence;
-  var tip = conf.reasons.join(' ');
-  if (c.rating.systemRating !== c.rating.finalRating){
-    return '<div class="table-sub" style="margin-top:3px;" title="'+esc(tip)+'">AI recommended '+esc(c.rating.systemRating)+' at '+conf.score+'% confidence</div>';
-  }
-  return '<div class="table-sub" style="margin-top:3px;" title="'+esc(tip)+'">'+conf.score+'% confidence in this rating</div>';
-}
-/* Sub-line shown directly under a case's Promotion pill, mirroring ratingConfidenceSubline above,
-   in place of the separate "AI Recommended Promotion" column. Only shown for the eligible-ish
-   values (Eligible / Eligible With Exception) — a "Not Eligible" system recommendation gets no
-   percentage at all, since there's nothing borderline to express confidence about once the
-   engine has flatly ruled someone out. Governed by the engine's own systemStatus, not whatever
-   HR may have overridden the final status to, same reasoning as the rating sub-line. */
-function promotionConfidenceSubline(c){
-  if (c.eligibility.systemStatus === 'Not Eligible') return '';
-  var conf = c.promotionConfidence;
-  var tip = conf.reasons.join(' ');
-  if (c.eligibility.overridden){
-    return '<div class="table-sub" style="margin-top:3px;" title="'+esc(tip)+'">AI recommended '+esc(c.eligibility.systemStatus)+' at '+conf.score+'% confidence</div>';
-  }
-  return '<div class="table-sub" style="margin-top:3px;" title="'+esc(tip)+'">'+conf.score+'% confidence in this promotion</div>';
-}
 /* Compact inline flag for a case whose underlying employee record is missing information from
    the annual data upload — surfaced right on the RTD Review row rather than only inside the
    dossier, per the "don't skip records, flag them instead" data-load policy. */
@@ -735,6 +727,7 @@ function icon(name, size){
     audit: '<path d="M9 2h6l1 3H8l1-3z"/><rect x="4" y="5" width="16" height="17" rx="2"/><path d="M8 11h8M8 15h8M8 19h5"/>',
     search: '<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/>',
     chevronRight: '<path d="M9 6l6 6-6 6"/>',
+    star: '<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>',
     chevronDown: '<path d="M6 9l6 6 6-6"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     check: '<path d="M5 13l4 4L19 7"/>',
@@ -1756,13 +1749,6 @@ function viewExecutiveDashboard(){
   var certGaps = cases.filter(function(c){ return c.cert.gap; }).length;
   var promoRecs = cases.filter(function(c){ return c.employee.promotionRecommendation; }).length;
 
-  var byPractice = {};
-  cases.forEach(function(c){ var p=c.employee.practice; byPractice[p]=byPractice[p]||{n:0,sum:0}; byPractice[p].n++; byPractice[p].sum+=RATING_RANK[c.rating.finalRating]; });
-  // Same red/amber/green/purple scale as the Rating Distribution chart, so a low-scoring
-  // practice is visible at a glance rather than requiring the number to be read first.
-  var practiceBarColor = function(v){ return v<1 ? 'var(--critical)' : v<1.5 ? 'var(--warning)' : v<2.25 ? 'var(--success)' : 'var(--special)'; };
-  var practiceBars = Object.keys(byPractice).map(function(p){ var v = +(byPractice[p].sum/byPractice[p].n).toFixed(2); return {label:p.split(' ')[0], value: v, color:practiceBarColor(v)}; });
-
   var html = '<div class="kpi-grid">'+
     kpiTile('Active Cases', total, icon('folder',14), null)+
     kpiTile('Avg. Rating Index', avgRatingRank.toFixed(2)+' / 3.0', icon('trend',14), avgRatingRank>=1.5?'On track':'Watch')+
@@ -1781,14 +1767,11 @@ function viewExecutiveDashboard(){
     '</div></div>';
   html += '</div>';
 
-  html += '<div class="grid-2" style="margin-top:16px;">';
-  html += '<div class="card card-pad"><div class="section-title">Avg. rating index by practice</div><div class="section-sub">0 = Needs Improvement · 3 = Exceptional</div>'+svgBarChart(practiceBars,{height:190})+'</div>';
-  html += '<div class="card card-pad"><div class="section-title">Compliance snapshot</div>'+
+  html += '<div class="card card-pad" style="margin-top:16px;"><div class="section-title">Compliance snapshot</div>'+
     complianceRow('Mandatory learning compliant', learningCompliant, total)+
     complianceRow('Certification requirements met', total-certGaps, total)+
     complianceRow('Mandatory training completed', cases.filter(function(c){return c.employee.mandatoryTrainingStatus==='Completed';}).length, total)+
     '</div>';
-  html += '</div>';
 
   // The KPI tile above always reflects the true at-risk count under the current Quick Filters —
   // the search box is a "find this person" tool, not a population-redefining filter, so it only
@@ -1810,6 +1793,30 @@ function viewExecutiveDashboard(){
 }
 function kpiTile(label, value, iconHtml, delta){
   return '<div class="card kpi-tile"><div class="kpi-label">'+esc(label)+iconHtml+'</div><div class="kpi-value tabular">'+value+'</div>'+(delta?'<div class="kpi-delta">'+esc(delta)+'</div>':'')+'</div>';
+}
+/* Icon-badge KPI card: colored icon chip, big value, label, and an optional sub-line (plain text
+   or a mini progress bar via miniProgressBar). `clickAttr`, when given, makes the whole card a
+   button that toggles a drill-down filter — the card renders a chevron and highlights active. */
+function kpiCardV2(label, value, iconHtml, colorClass, subHtml, clickAttr, active){
+  return '<div class="card card-pad kpi-card-v2'+(clickAttr?' clickable-kpi':'')+(active?' kpi-active':'')+'"'+(clickAttr?' '+clickAttr:'')+'>'+
+    '<div class="kpi-top"><div class="kpi-icon-badge badge-'+colorClass+'">'+iconHtml+'</div>'+
+    (clickAttr?'<span style="color:var(--text-tertiary);">'+icon('chevronRight',14)+'</span>':'')+
+    '</div>'+
+    '<div class="kpi-value2 tabular">'+value+'</div>'+
+    '<div class="kpi-label2">'+esc(label)+'</div>'+
+    (subHtml?'<div class="kpi-sub2">'+subHtml+'</div>':'')+
+    '</div>';
+}
+function miniProgressBar(pct){
+  var color = pct>=85?'var(--success)':pct>=60?'var(--warning)':'var(--critical)';
+  return '<div class="mini-progress-track"><div class="mini-progress-fill" style="width:'+pct+'%;background:'+color+';"></div></div>';
+}
+/* Compact percentage + mini bar for a table cell — the AI confidence score for one case's rating
+   or promotion recommendation, colored by confidenceLevel, with the underlying reasons as a
+   native tooltip so the detail survives moving off the old inline sub-line text. */
+function confidenceBar(score, reasons){
+  var tip = reasons ? reasons.join(' ') : '';
+  return '<div style="min-width:88px;" title="'+esc(tip)+'"><span class="tabular" style="font-weight:600;font-size:12px;">'+score+'%</span>'+miniProgressBar(score)+'</div>';
 }
 function complianceRow(label, num, den){
   var pct = den? Math.round(num/den*100):0;
@@ -1882,21 +1889,65 @@ function viewRTDDashboard(){
     return 0;
   });
 
+  var totalCases = cases.length;
+  var eligibleN = cases.filter(function(c){ return c.eligibility.status!=='Not Eligible'; }).length;
+  var notEligibleN = totalCases - eligibleN;
+  var avgConfidence = totalCases ? Math.round(cases.reduce(function(s,c){ return s+c.ratingConfidence.score; },0)/totalCases) : 0;
+
   var html = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">'+
     '<div><div class="section-title">RTD Review</div><div class="section-sub">'+filtered.length+' of '+cases.length+' cases · click a row to open the full dossier</div></div>'+
     (isHR() ? '<button class="btn btn-sm" id="export-rtd-results">'+icon('folder',12)+' Export results (Excel)</button>' : '')+
     '</div>';
-  if ((UI.filters['rtd']||{}).risk) html += '<div class="table-sub" style="margin:-4px 0 10px;">Showing only cases flagged for risk. <span class="breadcrumb-link" id="clear-risk-filter">Clear</span></div>';
-  html += filterBar([
+
+  html += '<div class="kpi-grid" style="margin:16px 0 18px;">'+
+    kpiCardV2('Total Cases', totalCases, icon('users',16), 'accent', 'Require review')+
+    kpiCardV2('Promotion Eligible', eligibleN, icon('check',16), 'success', 'Ready for promotion')+
+    kpiCardV2('Not Eligible', notEligibleN, icon('x',16), 'critical', 'Have blockers')+
+    kpiCardV2('Avg. Confidence', avgConfidence+'%', icon('star',16), 'special', miniProgressBar(avgConfidence))+
+    '</div>';
+
+  // Blocking reason categories tallied once per employee (not once per reason) so a case with two
+  // L&D blockers doesn't double-count in the panel — mirrors the categories computePromotionEligibility
+  // actually produces (Rule 2/5/6, L&D, TIG, BOTP), just with friendlier labels for the panel.
+  var BLOCKER_LABELS = { 'Rule 2':'Prior year promotion', 'Rule 5':'Readiness / recommendation',
+    'L&D':'Learning & development', 'Rule 6':'Certification', 'TIG':'Time in grade', 'BOTP':'Active BOTP' };
+  var blockerCounts = {};
+  cases.forEach(function(c){
+    var seen = {};
+    c.eligibility.reasons.filter(function(r){ return r.ok===false; }).forEach(function(r){
+      var cat = r.text.split(' ·')[0];
+      if (seen[cat]) return; seen[cat] = true;
+      blockerCounts[cat] = (blockerCounts[cat]||0)+1;
+    });
+  });
+  var topBlockers = Object.keys(blockerCounts).map(function(k){ return {label: BLOCKER_LABELS[k]||k, count: blockerCounts[k]}; })
+    .sort(function(a,b){ return b.count-a.count; }).slice(0,4);
+
+  var insightsHtml = '<div class="card card-pad">'+
+    '<div class="section-title" style="font-size:15px;">Key insights</div>'+
+    '<div class="reason-list" style="margin-top:10px;">'+
+    '<div class="reason-item">'+icon('check',14)+'<span><strong>'+eligibleN+'</strong> employee'+(eligibleN===1?' is':'s are')+' promotion eligible<div class="table-sub">'+(totalCases?Math.round(eligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
+    '<div class="reason-item">'+icon('alert',14)+'<span><strong>'+notEligibleN+'</strong> employee'+(notEligibleN===1?' has':'s have')+' blockers<div class="table-sub">'+(totalCases?Math.round(notEligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
+    '<div class="reason-item">'+icon('star',14)+'<span><strong>Average confidence score</strong>'+miniProgressBar(avgConfidence)+'</span></div>'+
+    '</div>'+
+    (topBlockers.length ? '<hr class="divider"/><div class="section-title" style="font-size:14px;">Top blockers</div><div style="margin-top:6px;">'+
+      topBlockers.map(function(b){ return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-soft);font-size:12.5px;"><span>'+esc(b.label)+'</span>'+pill(String(b.count),'pill-neutral')+'</div>'; }).join('')+
+      '</div>' : '')+
+    '<button class="btn btn-primary" id="rtd-review-all" style="width:100%;margin-top:14px;">Review all cases '+icon('arrowUpRight',13)+'</button>'+
+    '</div>';
+
+  var mainHtml = '';
+  if ((UI.filters['rtd']||{}).risk) mainHtml += '<div class="table-sub" style="margin:0 0 10px;">Showing only cases flagged for risk. <span class="breadcrumb-link" id="clear-risk-filter">Clear</span></div>';
+  mainHtml += filterBar([
     {field:'region', label:'Region'},
     {field:'rating', label:'Rating', options:RATINGS},
     {field:'eligibility', label:'Promotion', options:['Eligible','Eligible With Exception','Not Eligible']},
     {field:'localGrade', label:'Local Grade', options:localGradeOrder(), labelFor:localGradeName},
   ], 'rtd');
 
-  html += '<div class="card table-scroll"><table><thead><tr>'+
+  mainHtml += '<div class="card table-scroll"><table><thead><tr>'+
     thSort('Employee','name')+thSort('Grade','grade')+thSort('People Manager','peopleManager')+
-    thSort('Rating','rating')+thSort('Promotion','eligibility')+
+    thSort('Rating','rating')+'<th>Rating Confidence</th>'+thSort('Promotion','eligibility')+'<th>Promotion Confidence</th>'+
     '<th>Actions</th></tr></thead><tbody>'+
     filtered.map(function(c){
       return '<tr>'+
@@ -1904,8 +1955,10 @@ function viewRTDDashboard(){
         '<div><div class="table-name">'+esc(c.employee.name)+dataQualityBadge(c.employee)+'</div><div class="table-sub mono">'+(c.employee.ggid||'—')+'</div></div></div></td>'+
         '<td>'+c.employee.globalGrade+' <span class="table-sub">('+esc(c.employee.localGrade)+')</span></td>'+
         '<td>'+esc(c.employee.peopleManager||'—')+'</td>'+
-        '<td>'+pill(c.rating.finalRating, ratingPillClass(c.rating.finalRating))+(c.rating.systemRating!==c.rating.finalRating?' <span class="table-sub">HR override</span>':'')+ratingConfidenceSubline(c)+achievementRankBadge(c, achvRanks)+'</td>'+
-        '<td>'+pill(c.eligibility.status, eligPillClass(c.eligibility.status))+(c.eligibility.overridden?' <span class="table-sub">HR override</span>':'')+promotionConfidenceSubline(c)+'</td>'+
+        '<td>'+pill(c.rating.finalRating, ratingPillClass(c.rating.finalRating))+(c.rating.systemRating!==c.rating.finalRating?' <span class="table-sub">HR override</span>':'')+achievementRankBadge(c, achvRanks)+'</td>'+
+        '<td>'+confidenceBar(c.ratingConfidence.score, (c.rating.systemRating!==c.rating.finalRating?['AI recommended '+c.rating.systemRating+' at '+c.ratingConfidence.score+'% confidence.']:[]).concat(c.ratingConfidence.reasons))+'</td>'+
+        '<td>'+pill(c.eligibility.status, eligPillClass(c.eligibility.status))+(c.eligibility.overridden?' <span class="table-sub">HR override</span>':'')+'</td>'+
+        '<td>'+(c.eligibility.systemStatus!=='Not Eligible' ? confidenceBar(c.promotionConfidence.score, (c.eligibility.overridden?['AI recommended '+c.eligibility.systemStatus+' at '+c.promotionConfidence.score+'% confidence.']:[]).concat(c.promotionConfidence.reasons)) : '<span class="table-sub">—</span>')+'</td>'+
         '<td>'+(isHR()?
           '<div style="display:flex;gap:5px;"><button class="btn btn-icon btn-sm" data-override-rating="'+c.employee.id+'" title="Override rating">'+icon('edit',13)+'</button>'+
           '<button class="btn btn-icon btn-sm" data-override-promo="'+c.employee.id+'" title="Override promotion eligibility">'+icon('override',13)+'</button></div>'
@@ -1913,6 +1966,8 @@ function viewRTDDashboard(){
       '</tr>';
     }).join('')+
     '</tbody></table>'+(filtered.length?'':'<div class="empty-state">No cases match the current filters.</div>')+'</div>';
+
+  html += '<div class="grid-main-side">'+mainHtml+insightsHtml+'</div>';
 
   document.getElementById('view').innerHTML = html;
   bindFilterBar('rtd', function(){ viewRTDDashboard(); });
@@ -1934,6 +1989,8 @@ function viewRTDDashboard(){
   });
   var exportBtn = document.getElementById('export-rtd-results');
   if (exportBtn) exportBtn.addEventListener('click', function(){ exportFinalizedResults(filtered); });
+  var reviewAllBtn = document.getElementById('rtd-review-all');
+  if (reviewAllBtn) reviewAllBtn.addEventListener('click', function(){ UI.filters['rtd'] = {}; UI.search=''; viewRTDDashboard(); });
 }
 /* One row per case — the computed, post-HR-override outcome (not the raw upload data): final
    rating and promotion eligibility as they actually stand right now, whether HR stepped in on
@@ -1990,15 +2047,55 @@ function viewPromotionDashboard(){
   var searchQ = UI.search.trim().toLowerCase();
   if (searchQ) candidates = candidates.filter(function(c){ return c.employee.name.toLowerCase().indexOf(searchQ)>=0 || c.employee.ggid.toLowerCase().indexOf(searchQ)>=0 || c.employee.practice.toLowerCase().indexOf(searchQ)>=0; });
 
+  var eligibleCount = cases.filter(function(c){return c.eligibility.status==='Eligible';}).length;
+  var exceptionCount = cases.filter(function(c){return c.eligibility.status==='Eligible With Exception';}).length;
+  var notEligibleCount = cases.filter(function(c){return c.eligibility.status==='Not Eligible';}).length;
+  var activeEligFilter = (UI.filters['promo']||{}).eligibility;
+
   var html = '<div class="kpi-grid">'+
-    kpiTile('Promotion Recommendations', funnel[0].value, icon('award',14))+
-    kpiTile('Eligible', cases.filter(function(c){return c.eligibility.status==='Eligible';}).length, icon('check',14))+
-    kpiTile('Eligible With Exception', cases.filter(function(c){return c.eligibility.status==='Eligible With Exception';}).length, icon('alert',14))+
-    kpiTile('Not Eligible', cases.filter(function(c){return c.eligibility.status==='Not Eligible';}).length, icon('x',14))+
+    kpiCardV2('Promotion Recommendations', funnel[0].value, icon('award',16), 'accent', 'Manager recommended this cycle')+
+    kpiCardV2('Eligible', eligibleCount, icon('check',16), 'success', 'Ready for promotion', 'data-kpi-elig="Eligible"', activeEligFilter==='Eligible')+
+    kpiCardV2('Eligible with Exception', exceptionCount, icon('alert',16), 'warning', 'Needs HR sign-off', 'data-kpi-elig="Eligible With Exception"', activeEligFilter==='Eligible With Exception')+
+    kpiCardV2('Not Eligible', notEligibleCount, icon('x',16), 'critical', 'Requires development', 'data-kpi-elig="Not Eligible"', activeEligFilter==='Not Eligible')+
     '</div>';
 
-  html += '<div class="card card-pad" style="margin-top:16px;"><div class="section-title">Promotion funnel</div><div class="section-sub">From recommendation through system eligibility determination</div>'+
+  // "Ready for review" and "Top practice by readiness" both key off the same Ready-Now-and-not-
+  // blocked slice — someone the system already clears and whose manager says they're ready now,
+  // which is the actual queue a leadership review works through first.
+  var readyAndEligible = cases.filter(function(c){ return c.employee.promotionReadiness==='Ready Now' && c.eligibility.status!=='Not Eligible'; });
+  var practiceCounts = {};
+  readyAndEligible.forEach(function(c){ var p=c.employee.practice; practiceCounts[p]=(practiceCounts[p]||0)+1; });
+  var topPractice = Object.keys(practiceCounts).map(function(p){ return {practice:p, count:practiceCounts[p]}; }).sort(function(a,b){ return b.count-a.count; })[0];
+
+  var funnelHtml = '<div class="card card-pad"><div class="section-title" style="font-size:15px;">Promotion funnel</div><div class="section-sub">From recommendation through system eligibility determination</div>'+
     svgBarChart(funnel.map(function(f,i){return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--warning)'][i]};}),{height:190})+'</div>';
+
+  var insightsHtml = '<div class="card card-pad">'+
+    '<div class="section-title" style="font-size:15px;">Key insights</div>'+
+    '<div class="reason-list" style="margin-top:10px;">'+
+    '<div class="reason-item">'+icon('check',14)+'<span><strong>'+readyAndEligible.length+'</strong> employee'+(readyAndEligible.length===1?' is':'s are')+' promotion-ready and eligible for promotion</span></div>'+
+    '<div class="reason-item">'+icon('alert',14)+'<span><strong>'+notEligibleCount+'</strong> employee'+(notEligibleCount===1?' currently has':'s currently have')+' eligibility blockers</span></div>'+
+    '<div class="reason-item">'+icon(exceptionCount?'alert':'check',14)+'<span>'+(exceptionCount? '<strong>'+exceptionCount+'</strong> employee'+(exceptionCount===1?' needs':'s need')+' exception approval' : 'No exception approvals required')+'</span></div>'+
+    '</div>'+
+    (topPractice ? '<hr class="divider"/><div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Top practice by readiness</div>'+
+      '<div class="reason-item" style="justify-content:space-between;"><span style="font-weight:700;">'+esc(topPractice.practice)+'</span><span class="table-sub">'+topPractice.count+' candidate'+(topPractice.count===1?'':'s')+'</span></div>' : '')+
+    '</div>';
+
+  var readyForReview = readyAndEligible.slice(0,3);
+  var readyHtml = '<div class="card card-pad">'+
+    '<div style="display:flex;justify-content:space-between;align-items:center;"><div class="section-title" style="font-size:15px;margin-bottom:0;">Ready for review</div><span class="breadcrumb-link" id="promo-view-all-link">View all</span></div>'+
+    (readyForReview.length ? '<div class="reason-list" style="margin-top:10px;">'+readyForReview.map(function(c){
+      var e = c.employee;
+      return '<div class="reason-item" data-go="dossiers/'+e.id+'" style="cursor:pointer;align-items:center;">'+
+        '<div class="badge-avatar" style="width:26px;height:26px;font-size:10px;flex-shrink:0;">'+initials(e.name)+'</div>'+
+        '<span style="flex:1;min-width:0;"><strong>'+esc(e.name)+'</strong><div class="table-sub">'+e.ggid+' · Grade '+e.globalGrade+' · '+esc(e.practice)+'</div></span>'+
+        '<span style="display:flex;gap:4px;flex-wrap:wrap;flex-shrink:0;">'+pill(c.eligibility.status, eligPillClass(c.eligibility.status))+'</span>'+
+        '</div>';
+    }).join('')+'</div>' : '<div class="empty-state" style="padding:20px;">No candidates ready for review right now.</div>')+
+    '<button class="btn btn-primary" id="promo-review-all-btn" style="width:100%;margin-top:14px;">Review All Candidates '+icon('arrowUpRight',13)+'</button>'+
+    '</div>';
+
+  html += '<div class="grid-3" style="margin-top:16px;align-items:start;">'+funnelHtml+insightsHtml+readyHtml+'</div>';
 
   // Per-grade rank among promotion-eligible candidates (see promotionQuotaExceptions) for every
   // grade that has a configured quota AND exceeds it — keyed by employee id so both tabs below can
@@ -2023,6 +2120,27 @@ function viewPromotionDashboard(){
   bindGoLinks();
   Array.prototype.forEach.call(document.querySelectorAll('[data-ptab]'), function(el){
     el.addEventListener('click', function(){ PROMO_TAB = el.getAttribute('data-ptab'); viewPromotionDashboard(); });
+  });
+  // Each Eligible / Eligible with Exception / Not Eligible KPI card drills the candidates table
+  // down to just that status — clicking the same one again clears it, same toggle behavior as a
+  // chip filter.
+  Array.prototype.forEach.call(document.querySelectorAll('[data-kpi-elig]'), function(el){
+    el.addEventListener('click', function(){
+      var val = el.getAttribute('data-kpi-elig');
+      var cur = UI.filters['promo']||(UI.filters['promo']={});
+      if (cur.eligibility===val) delete cur.eligibility; else cur.eligibility = val;
+      viewPromotionDashboard();
+    });
+  });
+  var viewAllLink = document.getElementById('promo-view-all-link');
+  if (viewAllLink) viewAllLink.addEventListener('click', function(){
+    PROMO_TAB = 'candidates'; viewPromotionDashboard();
+    var el = document.getElementById('promo-tab-content'); if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  });
+  var reviewAllBtn = document.getElementById('promo-review-all-btn');
+  if (reviewAllBtn) reviewAllBtn.addEventListener('click', function(){
+    PROMO_TAB = 'candidates'; UI.filters['promo'] = {}; UI.search = ''; viewPromotionDashboard();
+    var el = document.getElementById('promo-tab-content'); if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
   });
   Array.prototype.forEach.call(document.querySelectorAll('[data-override]'), function(btn){
     btn.addEventListener('click', function(){ openEligibilityOverrideModal(btn.getAttribute('data-override')); });
