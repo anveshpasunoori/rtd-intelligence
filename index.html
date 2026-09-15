@@ -262,8 +262,9 @@
   .kpi-tile .kpi-delta.neg { color: var(--critical); }
 
   .grid-2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
+  .grid-2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  @media (max-width: 980px) { .grid-2, .grid-3 { grid-template-columns: 1fr; } }
+  @media (max-width: 980px) { .grid-2, .grid-2-eq, .grid-3 { grid-template-columns: 1fr; } }
 
   .pill {
     display: inline-flex; align-items: center; gap: 5px;
@@ -1968,6 +1969,8 @@ function thSort(label, field){
 }
 
 /* ============================= VIEW: PROMOTION DASHBOARD ============================= */
+var PROMO_TAB = 'candidates';
+var PROMO_TABS = [['candidates','Candidates'], ['highlights','Leadership Highlights']];
 function viewPromotionDashboard(){
   var cases = scopedCases();
   var funnel = [
@@ -1998,9 +2001,9 @@ function viewPromotionDashboard(){
     svgBarChart(funnel.map(function(f,i){return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--warning)'][i]};}),{height:190})+'</div>';
 
   // Per-grade rank among promotion-eligible candidates (see promotionQuotaExceptions) for every
-  // grade that has a configured quota AND exceeds it — keyed by employee id so the candidates table
-  // below can show "rank of total" plus an over/within-quota marker inline, instead of a separate
-  // compliance table.
+  // grade that has a configured quota AND exceeds it — keyed by employee id so both tabs below can
+  // show "rank of total" plus an over/within-quota marker inline, instead of a separate compliance
+  // table.
   var overflowByEmp = {};
   promotionQuotaExceptions(cases).forEach(function(ex){
     ex.ranked.forEach(function(rc, i){ overflowByEmp[rc.employee.id] = { rank:i+1, total:ex.total, quota:ex.quota, ex:ex }; });
@@ -2011,7 +2014,34 @@ function viewPromotionDashboard(){
     '</div>';
   html += filterBar([{field:'region',label:'Region'},{field:'practice',label:'Practice'},{field:'globalGrade',label:'Grade'},{field:'eligibility',label:'Eligibility',options:['Eligible','Eligible With Exception','Not Eligible']}],'promo');
 
-  html += '<div class="card table-scroll"><table><thead><tr><th>Employee</th><th>Grade</th><th>Practice</th><th>Readiness</th><th>Rating</th><th>Eligibility</th><th title="Rank among promotion-eligible peers in the same Local Grade, only where that grade\'s quota is exceeded — see Administration &gt; Rating &amp; Promotion Quotas">Quota Rank</th><th>Reason codes</th><th></th></tr></thead><tbody>'+
+  if (!PROMO_TABS.some(function(t){ return t[0]===PROMO_TAB; })) PROMO_TAB = 'candidates';
+  html += '<div class="tab-row">'+PROMO_TABS.map(function(t){ return '<div class="tab-btn'+(PROMO_TAB===t[0]?' active':'')+'" data-ptab="'+t[0]+'">'+t[1]+'</div>'; }).join('')+'</div>';
+  html += '<div id="promo-tab-content">'+(PROMO_TAB==='highlights' ? renderPromotionHighlightsTab(candidates, overflowByEmp) : renderPromotionCandidatesTab(candidates, overflowByEmp))+'</div>';
+
+  document.getElementById('view').innerHTML = html;
+  bindFilterBar('promo', function(){ viewPromotionDashboard(); });
+  bindGoLinks();
+  Array.prototype.forEach.call(document.querySelectorAll('[data-ptab]'), function(el){
+    el.addEventListener('click', function(){ PROMO_TAB = el.getAttribute('data-ptab'); viewPromotionDashboard(); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-override]'), function(btn){
+    btn.addEventListener('click', function(){ openEligibilityOverrideModal(btn.getAttribute('data-override')); });
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-suggest-override]'), function(btn){
+    btn.addEventListener('click', function(){
+      var empId = btn.getAttribute('data-suggest-override');
+      var grade = btn.getAttribute('data-exgrade');
+      var rank = parseInt(btn.getAttribute('data-rank'), 10);
+      var ex = promotionQuotaExceptions(cases).filter(function(x){ return x.localGrade===grade; })[0];
+      if (!ex) return;
+      var c = caseFor(empId);
+      openRatingOverrideModal(empId, { rating: capRating(c.rating.finalRating, 'Succeeding'), note: promotionOverflowReason(ex, rank, c) });
+    });
+  });
+}
+
+function renderPromotionCandidatesTab(candidates, overflowByEmp){
+  return '<div class="card table-scroll"><table><thead><tr><th>Employee</th><th>Grade</th><th>Practice</th><th>Readiness</th><th>Rating</th><th>Eligibility</th><th title="Rank among promotion-eligible peers in the same Local Grade, only where that grade\'s quota is exceeded — see Administration &gt; Rating &amp; Promotion Quotas">Quota Rank</th><th>Reason codes</th><th></th></tr></thead><tbody>'+
     candidates.map(function(c){
       var topReasons = c.eligibility.reasons.filter(function(r){return r.ok!==true;}).slice(0,2);
       var ov = overflowByEmp[c.employee.id];
@@ -2028,24 +2058,51 @@ function viewPromotionDashboard(){
         '</div></td>'+
       '</tr>';
     }).join('')+'</tbody></table>'+(candidates.length?'':'<div class="empty-state">No candidates match the current filters.</div>')+'</div>';
+}
 
-  document.getElementById('view').innerHTML = html;
-  bindFilterBar('promo', function(){ viewPromotionDashboard(); });
-  bindGoLinks();
-  Array.prototype.forEach.call(document.querySelectorAll('[data-override]'), function(btn){
-    btn.addEventListener('click', function(){ openEligibilityOverrideModal(btn.getAttribute('data-override')); });
-  });
-  Array.prototype.forEach.call(document.querySelectorAll('[data-suggest-override]'), function(btn){
-    btn.addEventListener('click', function(){
-      var empId = btn.getAttribute('data-suggest-override');
-      var grade = btn.getAttribute('data-exgrade');
-      var rank = parseInt(btn.getAttribute('data-rank'), 10);
-      var ex = promotionQuotaExceptions(cases).filter(function(x){ return x.localGrade===grade; })[0];
-      if (!ex) return;
-      var c = caseFor(empId);
-      openRatingOverrideModal(empId, { rating: capRating(c.rating.finalRating, 'Succeeding'), note: promotionOverflowReason(ex, rank, c) });
-    });
-  });
+/* Leadership-facing view of the same candidate set as the Candidates tab, but as a decision brief
+   per person instead of a dense table row — the story behind the numbers (achievements this cycle,
+   the qualitative business-impact note, any risk flags) surfaced up front rather than a click away
+   in the dossier, since that's what a promotion conversation actually turns on. */
+function renderPromotionHighlightsTab(candidates, overflowByEmp){
+  if (!candidates.length) return '<div class="empty-state">No candidates match the current filters.</div>';
+  return '<div class="section-sub" style="margin-bottom:12px;">One decision brief per candidate — achievements, business impact, and anything worth flagging before sign-off.</div>'+
+    '<div class="grid-2-eq">'+candidates.map(function(c){ return promotionHighlightCard(c, overflowByEmp[c.employee.id]); }).join('')+'</div>';
+}
+function promotionHighlightCard(c, ov){
+  var e = c.employee;
+  var overQuota = ov && ov.rank > ov.quota;
+  var topBlockers = c.eligibility.reasons.filter(function(r){ return r.ok!==true; }).slice(0,2);
+  var hasAchievements = e.awards.length || c.achievement.significantContribs || c.achievement.exceptionalContribs || (e.certificationLevel && e.certificationLevel!=='None');
+  return '<div class="card card-pad">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'+
+    '<div style="display:flex;gap:11px;align-items:center;min-width:0;">'+
+    '<div class="badge-avatar">'+initials(e.name)+'</div>'+
+    '<div style="min-width:0;">'+
+    '<div class="clickable" data-go="dossiers/'+e.id+'" style="font-weight:700;font-family:var(--font-display);font-size:14.5px;cursor:pointer;">'+esc(e.name)+'</div>'+
+    '<div class="table-sub mono">'+e.ggid+' · '+e.globalGrade+' ('+esc(e.localGrade)+')</div>'+
+    '<div class="table-sub">'+esc(e.practice)+' — '+esc(e.subPractice)+' · '+esc(e.region)+'</div>'+
+    '</div></div>'+
+    '<div style="display:flex;flex-direction:column;gap:4px;align-items:flex-end;flex-shrink:0;">'+
+    pill(c.rating.finalRating, ratingPillClass(c.rating.finalRating))+
+    pill(c.eligibility.status, eligPillClass(c.eligibility.status))+
+    '</div></div>'+
+    '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:12px;">'+
+    pill(e.promotionReadiness, e.promotionReadiness==='Ready Now'?'pill-success':'pill-neutral')+
+    (e.promotionRecommendation ? pill('Manager recommended','pill-special') : '')+
+    (ov ? pill('Quota rank '+ov.rank+' of '+ov.total, overQuota?'pill-warning':'pill-success') : '')+
+    (c.risk.length ? pill(c.risk.length+' risk flag'+(c.risk.length>1?'s':''),'pill-critical') : '')+
+    '</div>'+
+    '<hr class="divider"/>'+
+    (hasAchievements ?
+      '<div class="reason-item">'+icon('award',13)+'<span><strong>Achievements this cycle:</strong> '+esc(achievementSummaryText(c.achievement))+'</span></div>'
+      : '<div class="reason-item">'+icon('award',13)+'<span>'+e.utilization+'% utilization — no awards or high-impact contributions on file this cycle.</span></div>')+
+    (e.businessImpactNotes ? '<div style="font-size:12.5px;color:var(--text-secondary);line-height:1.55;padding:10px 12px;background:var(--bg-elevated);border-radius:8px;margin-top:8px;">"'+esc(e.businessImpactNotes)+'"</div>' : '')+
+    (e.awards.length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px;">'+e.awards.map(function(a){return pill(a,'pill-special');}).join('')+'</div>' : '')+
+    (topBlockers.length ? '<div class="reason-list" style="margin-top:8px;">'+topBlockers.map(function(r){return '<div class="reason-item" style="color:var(--warning);">'+icon('alert',13)+'<span>'+esc(r.text)+'</span></div>';}).join('')+'</div>' : '')+
+    (c.risk.length ? '<div class="reason-list" style="margin-top:8px;">'+c.risk.map(function(r){return '<div class="reason-item" style="color:var(--critical);">'+icon('alert',13)+'<span>'+esc(r)+'</span></div>';}).join('')+'</div>' : '')+
+    '<div style="margin-top:10px;font-size:11.5px;color:var(--text-tertiary);">Time in grade: '+e.timeInGrade+' yrs · Certification: '+(e.certificationLevel||'None')+'</div>'+
+    '</div>';
 }
 
 function openEligibilityOverrideModal(empId){
@@ -2150,11 +2207,8 @@ function promotionOverflowReason(ex, rank, c){
 }
 function viewCalibrationDashboard(){
   var cases = scopedCases();
-  var groupBy = UI.calibGroup || 'practice';
-  var groups = {};
-  cases.forEach(function(c){ var k=c.employee[groupBy]; groups[k]=groups[k]||[]; groups[k].push(c); });
 
-  var html = '<div class="section-title">Rating calibration</div><div class="section-sub">Compare distribution shape across groups to spot outlier leniency or severity before RTD sign-off</div>';
+  var html = '<div class="section-title">Rating calibration</div><div class="section-sub">Compare the overall shape against an idealized curve to spot outlier leniency or severity before RTD sign-off</div>';
 
   var overallCounts = {}; RATINGS.forEach(function(r){ overallCounts[r]=0; });
   cases.forEach(function(c){ overallCounts[c.rating.finalRating]++; });
@@ -2163,35 +2217,7 @@ function viewCalibrationDashboard(){
     svgBellCurveOverlay(RATINGS.map(function(r,i){return {label:r, value:overallCounts[r], color:['var(--critical)','var(--warning)','var(--success)','var(--special)'][i]};}), {height:220})+
     '</div>';
 
-  html += '<div class="section-title" style="margin-top:22px;">Distribution by group</div><div class="section-sub">'+({practice:'Practice',region:'Region',globalGrade:'Global Grade',country:'Country'})[groupBy]+' view — switch below</div>';
-  html += '<div class="filter-bar"><span style="font-size:12px;color:var(--text-secondary);margin-right:2px;">Group by</span>';
-  ['practice','region','globalGrade','country'].forEach(function(g){
-    html += '<span class="chip-filter'+(groupBy===g?' active':'')+'" data-calib-group="'+g+'">'+({practice:'Practice',region:'Region',globalGrade:'Global Grade',country:'Country'})[g]+'</span>';
-  });
-  html += '</div>';
-
-  html += '<div class="grid-3">';
-  Object.keys(groups).sort().forEach(function(k){
-    var list = groups[k];
-    var counts = {}; RATINGS.forEach(function(r){counts[r]=0;});
-    list.forEach(function(c){ counts[c.rating.finalRating]++; });
-    var avg = (list.reduce(function(s,c){return s+RATING_RANK[c.rating.finalRating];},0)/list.length);
-    var flagHigh = avg > 2.15;
-    var flagLow = avg < 0.85;
-    html += '<div class="card card-pad">'+
-      '<div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">'+
-      '<div><div style="font-weight:700;font-family:var(--font-display);font-size:14px;">'+esc(k)+'</div><div class="table-sub">'+list.length+' cases · avg '+avg.toFixed(2)+'</div></div>'+
-      (flagHigh?pill('Lenient outlier','pill-warning'):flagLow?pill('Severe outlier','pill-warning'):'')+
-      '</div>'+
-      svgBarChart(RATINGS.map(function(r,i){return {label:r, value:counts[r], color:['var(--critical)','var(--warning)','var(--success)','var(--special)'][i]};}), {height:160, width:340})+
-      '</div>';
-  });
-  html += '</div>';
-
   document.getElementById('view').innerHTML = html;
-  Array.prototype.forEach.call(document.querySelectorAll('[data-calib-group]'), function(el){
-    el.addEventListener('click', function(){ UI.calibGroup = el.getAttribute('data-calib-group'); viewCalibrationDashboard(); });
-  });
 }
 
 /* ============================= MODAL ============================= */
