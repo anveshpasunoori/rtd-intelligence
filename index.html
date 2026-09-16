@@ -2431,6 +2431,9 @@ function promotionQuotaExceptions(cases){
 function promotionOverflowReason(ex, rank, c){
   return 'Promotion-quota review, '+ex.localGrade+' ('+localGradeCodeForName(ex.localGrade)+'): '+ex.total+' promotion-eligible candidate(s) this cycle against a quota of '+ex.quota+' ('+ex.quotaPct+'% of '+ex.gradeTotal+' in this grade). Ranked by time-in-grade, certification level, and utilization — ranked '+rank+' of '+ex.total+' (TIG '+c.employee.timeInGrade+' yrs, '+(c.employee.certificationLevel||'None')+' cert, '+(c.employee.utilization||0)+'% utilization). Rating capped to a modest bracket rather than advanced this cycle; remains fully promotion-eligible for next cycle.';
 }
+// Ordinal, least- to most-ready — same "worst to best, 4 buckets" shape as RATINGS, so the same
+// idealized bell curve (IDEAL_RATING_CURVE) is a meaningful reference for this one too.
+var READINESS_ORDER = ['Not Ready', 'Ready 2+ Yrs', 'Ready 1-2 Yrs', 'Ready Now'];
 function viewCalibrationDashboard(){
   var cases = scopedCases();
 
@@ -2441,6 +2444,13 @@ function viewCalibrationDashboard(){
   html += '<div class="card card-pad" style="margin-top:16px;"><div class="section-title" style="font-size:14.5px;">Rating distribution vs. bell curve</div>'+
     '<div class="section-sub">Actual counts (bars) against an idealized ~13/37/37/13% bell-shaped distribution (line) scaled to the same population — a shape that leans well off the curve is worth a second look before sign-off.</div>'+
     svgBellCurveOverlay(RATINGS.map(function(r,i){return {label:r, value:overallCounts[r], color:['var(--critical)','var(--warning)','var(--success)','var(--special)'][i]};}), {height:220})+
+    '</div>';
+
+  var readinessCounts = {}; READINESS_ORDER.forEach(function(r){ readinessCounts[r]=0; });
+  cases.forEach(function(c){ if (readinessCounts[c.employee.promotionReadiness]!=null) readinessCounts[c.employee.promotionReadiness]++; });
+  html += '<div class="card card-pad" style="margin-top:16px;"><div class="section-title" style="font-size:14.5px;">Promotion distribution vs. bell curve</div>'+
+    '<div class="section-sub">Promotion readiness (Not Ready through Ready Now), same idealized bell shape — a manager whose reports skew heavily toward one end is worth a second look, same as an outlier rating shape.</div>'+
+    svgBellCurveOverlay(READINESS_ORDER.map(function(r,i){return {label:r, value:readinessCounts[r], color:['var(--critical)','var(--warning)','var(--success)','var(--special)'][i]};}), {height:220})+
     '</div>';
 
   document.getElementById('view').innerHTML = html;
