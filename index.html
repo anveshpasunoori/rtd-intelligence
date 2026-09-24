@@ -511,6 +511,9 @@ var PRISTINE_HTML = document.documentElement.outerHTML;
    and, on every persist(), whether to keep writing that autosave. */
 var IN_ARTIFACT_HOST = !!(window.claude && typeof window.claude.use === 'function');
 var LOCAL_STATE_KEY = 'rtd_local_state_v1';
+// Set once persist()'s localStorage fallback first fails this page load, so the blocking
+// "storage full" modal (see persist()) shows once rather than on every subsequent mutation.
+var STORAGE_FULL_WARNED = false;
 var STATE = (function(){
   var seed = JSON.parse(document.getElementById('app-state').textContent);
   if (!IN_ARTIFACT_HOST){
@@ -524,6 +527,48 @@ var STATE = (function(){
 if (!STATE.archives) STATE.archives = [];
 if (!STATE.uploadBatches) STATE.uploadBatches = [];
 if (!STATE.meta.cycleLabel) STATE.meta.cycleLabel = 'FY2026 RTD Cycle';
+// The year every current-roster record belongs to, read off the cycle label (e.g. "FY2026 RTD
+// Cycle" -> 2026). Annual Data Load stamps every employee it creates or touches with this, and it
+// is the scope duplicate-GGID checking uses — the same GGID reappearing in a LATER year is
+// expected (that is how a person is matched and updated cycle over cycle), it is only a problem
+// when two live records share both the same GGID and the same year.
+function currentCycleYear(){
+  var m = STATE.meta.cycleLabel.match(/(\d{4})/);
+  return m ? parseInt(m[1],10) : new Date().getFullYear();
+}
+var DUPLICATE_GGID_PREFIX = 'Duplicate GGID';
+/* Re-derives which employees are flagged for sharing a GGID with another live record in the SAME
+   year — run at boot (to catch anything already sitting in a saved roster, including duplicates
+   created by the earlier silent-save-failure bug) and again at the end of every Annual Data Load
+   commit. Idempotent: strips any prior "Duplicate GGID" entries first, then re-adds fresh ones, so
+   calling it repeatedly never accumulates stale or duplicate flag text, and a duplicate that gets
+   resolved (e.g. one record removed) correctly clears on the next call. Reuses the same
+   dataQualityIssues/dataQualityBadge mechanism as missing-field flags, so both show up the same
+   way under RTD Review and on the dossier without any new UI. Declared here, ahead of the backfill
+   call below, so its value exists the first time that call runs — defining it later in the file
+   (after boot has already run) left the very first pass reading it as undefined. */
+function recomputeDuplicateGgidFlags(){
+  var groups = {};
+  STATE.employees.forEach(function(e){
+    if (!e.ggid) return;
+    var key = e.year + '::' + e.ggid;
+    (groups[key] = groups[key] || []).push(e);
+  });
+  STATE.employees.forEach(function(e){
+    e.dataQualityIssues = (e.dataQualityIssues || []).filter(function(i){ return i.indexOf(DUPLICATE_GGID_PREFIX) !== 0; });
+  });
+  Object.keys(groups).forEach(function(key){
+    var members = groups[key];
+    if (members.length < 2) return;
+    members.forEach(function(e){
+      e.dataQualityIssues.push(DUPLICATE_GGID_PREFIX + ' ' + e.ggid + ' — ' + members.length + ' records share this GGID in ' + e.year + '.');
+    });
+  });
+}
+// Backfill for records saved before this field existed — including anyone's already-persisted
+// local save — so "every record has a year" holds for the whole roster, not just new uploads.
+STATE.employees.forEach(function(e){ if (e.year == null) e.year = currentCycleYear(); });
+recomputeDuplicateGgidFlags();
 var UI = { filters: {}, sort: {}, modal: null, search: '' };
 
 /* ============================= VIEWER ROLE (per-browser, not shared) =============================
@@ -724,7 +769,7 @@ function confidenceBadge(conf){
    dossier, per the "don't skip records, flag them instead" data-load policy. */
 function dataQualityBadge(emp){
   if (!emp.dataQualityIssues || !emp.dataQualityIssues.length) return '';
-  return ' <span class="pill pill-warning" title="'+esc(emp.dataQualityIssues.join(' · '))+'" style="margin-left:6px;">'+icon('alert',11)+' Missing data</span>';
+  return ' <span class="pill pill-warning" title="'+esc(emp.dataQualityIssues.join(' · '))+'" style="margin-left:6px;">'+icon('alert',11)+' Data quality</span>';
 }
 
 /* ============================= BRAND MARK ============================= */
@@ -850,8 +895,29 @@ function persist(successMsg){
     // localStorage instead; STATE already reads it back on boot (see IN_ARTIFACT_HOST above).
     // This is per-browser only: it doesn't sync anywhere and a different browser/profile still
     // starts from the seed data, which is exactly what the mode banner (renderModeBanner) warns.
-    try{ localStorage.setItem(LOCAL_STATE_KEY, json); }catch(e){}
-    showToast(successMsg ? successMsg + ' (saved to this browser only — see banner)' : 'Updated (saved to this browser only — see banner)');
+    var saveOk = false, saveErrName = '';
+    try{ localStorage.setItem(LOCAL_STATE_KEY, json); saveOk = true; }catch(e){ saveErrName = (e && e.name) || 'Error'; }
+    if (saveOk){
+      showToast(successMsg ? successMsg + ' (saved to this browser only — see banner)' : 'Updated (saved to this browser only — see banner)');
+    } else {
+      // Silent data loss beats a noisy failure only if you never notice — this browser's storage
+      // quota is full (or localStorage is unavailable, e.g. Safari private browsing), so the
+      // change above happened only in memory and WILL be lost on the next reload. Previously this
+      // showed the same "Saved" toast regardless of whether the write actually succeeded, which is
+      // exactly what let committed uploads silently vanish and made a re-upload of the same file
+      // look like 100% new rows instead of updates. Say so loudly instead, but only pop the
+      // blocking modal once per page load — every mutation calls persist(), and a full quota means
+      // every one of them would otherwise fail, so a modal per click would bury the user.
+      showToast('NOT saved — this browser storage is full (' + saveErrName + ')');
+      if (!STORAGE_FULL_WARNED){
+        STORAGE_FULL_WARNED = true;
+        openModal('Change not saved', '<div style="display:flex;flex-direction:column;gap:10px;">'+
+          '<div>This browser local storage is full'+(saveErrName?' ('+esc(saveErrName)+')':'')+', so the last change — <strong>'+esc(successMsg||'this update')+'</strong> — only happened in memory. It will be lost on your next reload or restart, and further changes will not save either, until this is fixed.</div>'+
+          '<div>To free up space: remove old upload batches you no longer need from <strong>Annual Data Load → Uploaded files this cycle</strong>, or archive the current cycle to snapshot and clear history.</div>'+
+          '<div>For reliable saving that survives a restart, use the published Claude Artifact version of this app instead of this local copy — see the banner at the top of the page.</div>'+
+          '</div>', [{label:'OK', cls:'btn btn-primary'}]);
+      }
+    }
   }
 }
 function logAudit(entity, field, oldValue, newValue, employeeId, action){
@@ -2041,13 +2107,14 @@ function viewRTDDashboard(){
   ], 'rtd');
 
   mainHtml += '<div class="card table-scroll"><table><thead><tr>'+
-    thSort('Employee','name')+thSort('Grade','grade')+thSort('People Manager','peopleManager')+
+    thSort('Employee','name')+'<th>Year</th>'+thSort('Grade','grade')+thSort('People Manager','peopleManager')+
     thSort('Rating','rating')+'<th>Rating Confidence</th>'+thSort('Promotion','eligibility')+'<th>Promotion Confidence</th>'+
     '<th>Actions</th></tr></thead><tbody>'+
     filtered.map(function(c){
       return '<tr>'+
         '<td class="clickable" data-go="dossiers/'+c.employee.id+'"><div style="display:flex;align-items:center;gap:9px;"><div class="badge-avatar" style="width:28px;height:28px;font-size:10.5px;">'+initials(c.employee.name)+'</div>'+
         '<div><div class="table-name">'+esc(c.employee.name)+dataQualityBadge(c.employee)+'</div><div class="table-sub mono">'+(c.employee.ggid||'—')+'</div></div></div></td>'+
+        '<td>'+(c.employee.year||'—')+'</td>'+
         '<td>'+c.employee.globalGrade+' <span class="table-sub">('+esc(c.employee.localGrade)+')</span></td>'+
         '<td>'+esc(c.employee.peopleManager||'—')+'</td>'+
         '<td>'+pill(c.rating.finalRating, ratingPillClass(c.rating.finalRating))+(c.rating.systemRating!==c.rating.finalRating?' <span class="table-sub">HR override</span>':'')+achievementRankBadge(c, achvRanks)+'</td>'+
@@ -4193,7 +4260,11 @@ function csvCell(v){ v = v==null?'':String(v); return /[",\n]/.test(v) ? '"'+v.r
 function csvStringify(headers, rows){
   return headers.join(',') + '\n' + rows.map(function(r){ return headers.map(function(h){ return csvCell(r[h]); }).join(','); }).join('\n');
 }
-var DATA_LOAD_TEMPLATE_HEADERS = ['ggid','name','email','region','country','globalGrade','localGrade','practice','subPractice','supervisor','peopleManager','priorYearRating','performanceTrack','promotionReadiness','promotionRecommendation','timeInGrade','lpdDate','mandatoryTrainingStatus','learningHoursCompleted','certificationLevel','certificationDate','promotedPriorYear','activeBOTP','botpCompleted','utilization'];
+// 'year' is included so the exported roster shows which cycle year each record belongs to, but it
+// is display-only on the way in: commitDataLoad always stamps the current cycle year itself (see
+// currentCycleYear()) and never reads a 'year' column back out of an uploaded row, so an old
+// export re-uploaded later does not drag a stale year forward.
+var DATA_LOAD_TEMPLATE_HEADERS = ['ggid','year','name','email','region','country','globalGrade','localGrade','practice','subPractice','supervisor','peopleManager','priorYearRating','performanceTrack','promotionReadiness','promotionRecommendation','timeInGrade','lpdDate','mandatoryTrainingStatus','learningHoursCompleted','certificationLevel','certificationDate','promotedPriorYear','activeBOTP','botpCompleted','utilization'];
 
 /* A handful of header spellings real HRIS extracts commonly use that don't already match a
    template key once case/spacing/punctuation is normalized away (see normalizeHeaderKey) —
@@ -4241,8 +4312,50 @@ function offerDownload(filename, text){
 var DL_PARSED = null;
 var DL_FILENAME = null;
 var DL_DANGER_OPEN = false;
+function normalizeEmailKey(v){ return String(v||'').trim().toLowerCase(); }
+/* GGID is the reliable match key, but a real HRIS extract can have rows with no GGID yet (new
+   hires not fully provisioned, etc.) — those used to always fall through to "new", so uploading
+   the same person twice without a GGID silently created a second profile instead of updating the
+   first. Falls back to a case/space-insensitive email match when there's no GGID (or the GGID
+   doesn't match anything). Shared by the preview and the actual commit so what you're shown before
+   uploading matches what happens when you click Commit. */
+function buildDataLoadIndexes(){
+  // A GGID or email already shared by more than one live record is itself a data-quality problem
+  // (see recomputeDuplicateGgidFlags) — matching a row to "whichever one happens to be last in the
+  // list" would silently overwrite an arbitrary one of the ambiguous records instead of the one the
+  // row actually belongs to. So an ambiguous key is left out of the index entirely: a row for it
+  // falls through to the next fallback (email, then a new case), rather than guessing.
+  var ggidCounts = {}, emailCounts = {};
+  STATE.employees.forEach(function(e){
+    if (e.ggid) ggidCounts[e.ggid] = (ggidCounts[e.ggid] || 0) + 1;
+    var ek = normalizeEmailKey(e.email);
+    if (ek) emailCounts[ek] = (emailCounts[ek] || 0) + 1;
+  });
+  var byGgid = {}, byEmail = {};
+  STATE.employees.forEach(function(e){
+    if (e.ggid && ggidCounts[e.ggid] === 1) byGgid[e.ggid] = e;
+    var ek = normalizeEmailKey(e.email);
+    if (ek && emailCounts[ek] === 1) byEmail[ek] = e;
+  });
+  return { byGgid: byGgid, byEmail: byEmail };
+}
+function matchExistingForRow(r, idx){
+  if (r.ggid && idx.byGgid[r.ggid]) return idx.byGgid[r.ggid];
+  var ek = normalizeEmailKey(r.email);
+  if (ek && idx.byEmail[ek]) return idx.byEmail[ek];
+  return null;
+}
+/* Keeps the indexes current as rows are processed, so a second row later in the SAME file that
+   shares a just-created (or just-updated) row's GGID/email matches it too, instead of also
+   becoming "new" — the indexes above are otherwise only a snapshot from before this upload. */
+function registerInDataLoadIndexes(e, idx){
+  if (!e) return;
+  if (e.ggid) idx.byGgid[e.ggid] = e;
+  var ek = normalizeEmailKey(e.email);
+  if (ek) idx.byEmail[ek] = e;
+}
 function viewDataLoad(){
-  var html = '<div class="section-title">Annual Data Load</div><div class="section-sub">Upload the year\'s employee extract to refresh the roster — matched and updated by GGID, new GGIDs are added as new cases. Every row is loaded; rows missing information are flagged under RTD Review rather than skipped.</div>';
+  var html = '<div class="section-title">Annual Data Load</div><div class="section-sub">Upload the year\'s employee extract to refresh the roster — matched and updated by GGID, falling back to email when a row has no GGID; anything that still doesn\'t match is added as a new case. Every record is stamped with the current cycle year ('+currentCycleYear()+'); two live records sharing both the same GGID and the same year get flagged as a Data quality issue. Every row is loaded; rows missing information are flagged under RTD Review rather than skipped.</div>';
 
   html += '<div class="card card-pad" style="margin-bottom:16px;"><div class="grid-3">'+
     stat('Active Cycle', esc(STATE.meta.cycleLabel))+stat('Employees Loaded', STATE.employees.length)+stat('Last Updated', fmtDate(STATE.meta.lastUpdated))+
@@ -4303,7 +4416,7 @@ function viewDataLoad(){
   });
   document.getElementById('dl-export').addEventListener('click', function(){
     var rows = STATE.employees.map(function(e){
-      return { ggid:e.ggid, name:e.name, email:e.email, region:e.region, country:e.country, globalGrade:e.globalGrade, localGrade:e.localGrade,
+      return { ggid:e.ggid, year:e.year, name:e.name, email:e.email, region:e.region, country:e.country, globalGrade:e.globalGrade, localGrade:e.localGrade,
         practice:e.practice, subPractice:e.subPractice, supervisor:e.supervisor||'', peopleManager:e.peopleManager||'',
         priorYearRating: e.ratingsHistory[e.ratingsHistory.length-1], performanceTrack:e.performanceTrack, promotionReadiness:e.promotionReadiness,
         promotionRecommendation: e.promotionRecommendation?'Yes':'No', timeInGrade:e.timeInGrade, lpdDate:e.lpdDate,
@@ -4469,23 +4582,26 @@ function renderDataLoadPreview(mode, detail){
     return;
   }
   if (!DL_PARSED || !DL_PARSED.length){ el.innerHTML = '<div class="table-sub">No rows parsed from that file. Make sure the first row of the first sheet has column headers matching the template, with data starting on row 2.</div>'; return; }
-  var existingByGgid = {}; STATE.employees.forEach(function(e){ if (e.ggid) existingByGgid[e.ggid]=e; });
+  var dlIdx = buildDataLoadIndexes();
   var updates = 0, creates = 0, flagged = 0;
   var rowMeta = DL_PARSED.map(function(r){
-    var existing = r.ggid ? existingByGgid[r.ggid] : null;
+    var existing = matchExistingForRow(r, dlIdx);
     var issues = existing ? dataLoadIssuesForUpdate(r, existing) : dataLoadIssuesForCreate(r);
     if (existing) updates++; else creates++;
     if (issues.length) flagged++;
+    // Register this row's identity so a later row in the SAME file sharing its GGID or email
+    // previews as an update against it, not as a second "new" — mirrors what commitDataLoad does.
+    registerInDataLoadIndexes({ ggid: r.ggid || (existing && existing.ggid), email: r.email || (existing && existing.email) }, dlIdx);
     return { r:r, issues:issues };
   });
   var html = '<div class="reason-list" style="margin-bottom:12px;">'+
     '<div class="reason-item">'+icon('check',13)+'<span>All '+DL_PARSED.length+' rows will be loaded — none are skipped. '+updates+' will update existing employees, '+creates+' will be added as new cases.</span></div>'+
     (flagged? '<div class="reason-item" style="color:var(--warning);">'+icon('alert',13)+'<span>'+flagged+' row(s) are missing some information — they\'ll still be loaded, and flagged with a "Missing data" badge under RTD Review so HR can follow up.</span></div>' : '')+
     '</div>';
-  html += '<div class="table-scroll" style="max-height:280px;overflow-y:auto;"><table><thead><tr><th>GGID</th><th>Name</th><th>Region</th><th>Grade</th><th>Practice</th><th>Rating</th><th>Data quality</th></tr></thead><tbody>'+
+  html += '<div class="table-scroll" style="max-height:280px;overflow-y:auto;"><table><thead><tr><th>GGID</th><th>Year</th><th>Name</th><th>Region</th><th>Grade</th><th>Practice</th><th>Rating</th><th>Data quality</th></tr></thead><tbody>'+
     rowMeta.slice(0,15).map(function(m){
       var r = m.r;
-      return '<tr><td class="mono">'+esc(r.ggid||'—')+'</td><td>'+esc(r.name||'—')+'</td><td>'+esc(r.region||'—')+'</td><td>'+esc(r.globalGrade||'—')+'</td><td>'+esc(r.practice||'—')+'</td><td>'+esc(r.priorYearRating||'—')+'</td>'+
+      return '<tr><td class="mono">'+esc(r.ggid||'—')+'</td><td>'+currentCycleYear()+'</td><td>'+esc(r.name||'—')+'</td><td>'+esc(r.region||'—')+'</td><td>'+esc(r.globalGrade||'—')+'</td><td>'+esc(r.practice||'—')+'</td><td>'+esc(r.priorYearRating||'—')+'</td>'+
         '<td>'+(m.issues.length? '<span class="pill pill-warning" title="'+esc(m.issues.join(' · '))+'">'+icon('alert',11)+' '+m.issues.length+' missing</span>' : '<span class="pill pill-success">'+icon('check',11)+' OK</span>')+'</td></tr>';
     }).join('')+
     '</tbody></table></div>'+(DL_PARSED.length>15?'<div class="table-sub" style="margin-top:6px;">+ '+(DL_PARSED.length-15)+' more rows not shown</div>':'')+
@@ -4515,7 +4631,7 @@ function dataLoadIssuesForUpdate(r, existing){
   return issues;
 }
 function commitDataLoad(){
-  var existingByGgid = {}; STATE.employees.forEach(function(e){ if (e.ggid) existingByGgid[e.ggid]=e; });
+  var dlIdx = buildDataLoadIndexes();
   var updated = 0, created = 0, flagged = 0;
   // Recorded per upload so a single file/batch can be individually undone later (see Upload
   // History) — createdIds get fully removed, updatedSnapshots get restored to their exact
@@ -4526,7 +4642,7 @@ function commitDataLoad(){
   var batchUpdatedSnapshots = [];
   DL_PARSED.forEach(function(r){
     var yesNo = function(v){ return /^y/i.test(v); };
-    var existing = r.ggid ? existingByGgid[r.ggid] : null;
+    var existing = matchExistingForRow(r, dlIdx);
     if (existing){
       batchUpdatedSnapshots.push({ employeeId: existing.id, before: clone(existing) });
       var updateIssues = dataLoadIssuesForUpdate(r, existing);
@@ -4555,12 +4671,16 @@ function commitDataLoad(){
       if (r.botpCompleted) existing.botpCompleted = yesNo(r.botpCompleted);
       if (r.utilization) existing.utilization = parseFloat(r.utilization);
       existing.dataQualityIssues = updateIssues;
+      // Refreshed to the current cycle year — this row's data has now been confirmed/updated for
+      // this year's load, regardless of what year the record last carried.
+      existing.year = currentCycleYear();
       if (updateIssues.length) flagged++;
       updated++;
+      registerInDataLoadIndexes(existing, dlIdx);
     } else {
       var id = uid('EMP');
       var createIssues = dataLoadIssuesForCreate(r);
-      STATE.employees.push({
+      var newEmp = {
         id:id, ggid:r.ggid||'', name:r.name||r.ggid||'Unnamed (missing data)', firstName:(r.name||'').split(' ')[0]||'', lastName:(r.name||'').split(' ').slice(1).join(' '),
         email:r.email||'', regionType:'Region', region:r.region||'', country:r.country||'', globalGrade:r.globalGrade||'C1', localGrade:r.localGrade||'',
         practice:r.practice||'', subPractice:r.subPractice||'', supervisor:r.supervisor||'', peopleManager:r.peopleManager||'', isPeopleManager:false,
@@ -4570,12 +4690,15 @@ function commitDataLoad(){
         learningHoursCompleted:parseFloat(r.learningHoursCompleted)||0, industryCertifications:[], certificationLevel:r.certificationLevel||'None',
         certificationDate:r.certificationDate||null, promotedPriorYear:yesNo(r.promotedPriorYear||''), activeBOTP:yesNo(r.activeBOTP||''),
         botpCompleted:yesNo(r.botpCompleted||''), botpExceptionApproved:false, primaryAccountOverride:null, utilization:parseFloat(r.utilization)||70,
-        businessImpactNotes:'', ratingOverride:null, ratingOverrideNote:null, dataQualityIssues:createIssues, changeHistory:[]
-      });
+        businessImpactNotes:'', ratingOverride:null, ratingOverrideNote:null, dataQualityIssues:createIssues, changeHistory:[],
+        year: currentCycleYear()
+      };
+      STATE.employees.push(newEmp);
       if (createIssues.length) flagged++;
       STATE.workflow[id] = { employeeId:id, currentStep:1, status:'In Progress', history:[{step:1, stepName:STATE.stepNames[0], completedBy:'System', completedAt:nowIso(), notes:'Loaded via annual data upload'}] };
       batchCreatedIds.push(id);
       created++;
+      registerInDataLoadIndexes(newEmp, dlIdx);
     }
   });
   STATE.uploadBatches.unshift({
@@ -4583,10 +4706,18 @@ function commitDataLoad(){
     rowCount: DL_PARSED.length, createdIds: batchCreatedIds, updatedSnapshots: batchUpdatedSnapshots
   });
   invalidateCases();
-  logAudit('Data Load', 'Employees', existingByGgid ? Object.keys(existingByGgid).length+' existing' : '0', updated+' updated, '+created+' created'+(flagged?', '+flagged+' flagged for missing data':''), null, 'Annual Data Upload');
+  // Re-checks GGID uniqueness within this cycle's year across the WHOLE roster (not just this
+  // batch) — catches this upload creating a same-year collision with someone untouched by it, and
+  // also re-confirms nothing already flagged got silently resolved.
+  recomputeDuplicateGgidFlags();
+  var touchedIds = batchCreatedIds.concat(batchUpdatedSnapshots.map(function(s){ return s.employeeId; }));
+  var dupCount = STATE.employees.filter(function(e){
+    return touchedIds.indexOf(e.id) >= 0 && e.dataQualityIssues.some(function(i){ return i.indexOf(DUPLICATE_GGID_PREFIX) === 0; });
+  }).length;
+  logAudit('Data Load', 'Employees', Object.keys(dlIdx.byGgid).length+' existing', updated+' updated, '+created+' created'+(flagged?', '+flagged+' flagged for missing data':'')+(dupCount?', '+dupCount+' with a duplicate GGID this year':''), null, 'Annual Data Upload');
   DL_PARSED = null;
   DL_FILENAME = null;
-  persist('Loaded '+updated+' updates and '+created+' new cases'+(flagged?' — '+flagged+' flagged for missing data (see RTD Review)':''));
+  persist('Loaded '+updated+' updates and '+created+' new cases'+(flagged?' — '+flagged+' flagged for missing data':'')+(dupCount?(flagged?' and ':' — ')+dupCount+' with a duplicate GGID this year':'')+((flagged||dupCount)?' (see RTD Review)':''));
   viewDataLoad();
 }
 /* Reverts exactly one past upload — the ids it created are removed outright (plus their linked
