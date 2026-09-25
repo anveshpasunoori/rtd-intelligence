@@ -1,0 +1,20 @@
+{
+  "name": "rtd-intelligence-server",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Self-hosted backend for RTD Intelligence: real login + Postgres storage in place of browser localStorage.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pg": "^8.12.0",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "cookie-parser": "^1.4.6",
+    "dotenv": "^16.4.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.4.0"
+  }
+}
