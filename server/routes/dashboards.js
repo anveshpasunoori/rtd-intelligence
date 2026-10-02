@@ -51,6 +51,15 @@ function countBy(cases, keys, fn) {
   return counts;
 }
 
+// Promotion standing in three groups leadership can act on: Eligible (incl. with exception);
+// Blocked — recommended for promotion but held back by a rule; Not a candidate — not recommended
+// this cycle (counting these as "not eligible" overstated how many people are blocked).
+const PROMOTION_GROUPS = ['eligible', 'blocked', 'notCandidate'];
+function promotionGroup(c) {
+  if (c.eligibility.status !== 'Not Eligible') return 'eligible';
+  return c.employee.promotionRecommendation ? 'blocked' : 'notCandidate';
+}
+
 function scoped(data, query) {
   const qf = quickFilters(query);
   return data.cases.filter((c) => data.engine.matchesQuickFilters(c.employee, qf));
@@ -78,6 +87,7 @@ function rtdRow(c, ranks) {
     promotionConfidence: c.promotionConfidence,
     achievement: c.achievement, achievementRank: ranks[c.employee.id] || null,
     riskCount: c.risk.length,
+    promotionGroup: promotionGroup(c),
   });
 }
 
@@ -140,6 +150,7 @@ function rtdFiltered(data, query) {
     if (query.rating && c.rating.finalRating !== query.rating) return false;
     if (query.eligibility && c.eligibility.status !== query.eligibility) return false;
     if (query.risk === '1' && !c.risk.length) return false;
+    if (query.promotion && promotionGroup(c) !== query.promotion) return false;
     return true;
   });
   const search = searchFilter(query.q);
@@ -214,6 +225,7 @@ module.exports = function dashboardRoutes({ pool, requireAdmin }) {
       total,
       ratingCounts: countBy(cases, RATINGS, (c) => c.rating.finalRating),
       eligibilityCounts: countBy(cases, ELIGIBILITY_STATUSES, (c) => c.eligibility.status),
+      promotionGroups: countBy(cases, PROMOTION_GROUPS, promotionGroup),
       avgRatingIndex: cases.reduce((s, c) => s + RATING_RANK[c.rating.finalRating], 0) / total,
       promotionRecommendations: cases.filter((c) => c.employee.promotionRecommendation).length,
       learningCompliant: cases.filter((c) => c.learning.status === 'Meets Requirement').length,
@@ -243,6 +255,7 @@ module.exports = function dashboardRoutes({ pool, requireAdmin }) {
     });
     res.json({
       total, eligible, notEligible: total - eligible,
+      promotionGroups: countBy(cases, PROMOTION_GROUPS, promotionGroup),
       avgConfidence: total ? Math.round(cases.reduce((s, c) => s + c.ratingConfidence.score, 0) / total) : 0,
       topBlockers: Object.keys(blockerCounts).map((k) => ({ label: BLOCKER_LABELS[k] || k, count: blockerCounts[k] }))
         .sort((a, b) => b.count - a.count).slice(0, 4),
@@ -290,6 +303,7 @@ module.exports = function dashboardRoutes({ pool, requireAdmin }) {
         { label: 'Elig. w/ Exception', value: count((c) => c.eligibility.status === 'Eligible With Exception') },
       ],
       eligibilityCounts: countBy(cases, ELIGIBILITY_STATUSES, (c) => c.eligibility.status),
+      promotionGroups: countBy(cases, PROMOTION_GROUPS, promotionGroup),
       readyAndEligibleCount: readyAndEligible.length,
       readyForReview: readyAndEligible.slice(0, 3).map((c) => candidateRow(c, quota[c.employee.id])),
       topPractice,

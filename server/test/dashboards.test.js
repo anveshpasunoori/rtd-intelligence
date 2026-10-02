@@ -124,6 +124,30 @@ test('rtd: KPIs, filters, sorting and paging', async () => {
   assert.ok(d.filteredTotal > 0 && d.rows.every((x) => x.practice.toLowerCase().includes('underwriting') || x.name.toLowerCase().includes('underwriting')));
 });
 
+test('promotion groups: eligible / blocked (recommended but held back) / not a candidate', async () => {
+  const { cases } = await expectedCases();
+  const group = (c) => (c.eligibility.status !== 'Not Eligible' ? 'eligible' : (c.employee.promotionRecommendation ? 'blocked' : 'notCandidate'));
+  const expected = { eligible: 0, blocked: 0, notCandidate: 0 };
+  cases.forEach((c) => { expected[group(c)]++; });
+  assert.ok(expected.blocked > 0 && expected.notCandidate > expected.blocked, 'demo data has both kinds');
+
+  for (const p of ['/api/dashboards/executive', '/api/dashboards/rtd', '/api/dashboards/promotions']) {
+    assert.deepEqual((await reviewer.get(p)).body.promotionGroups, expected, p);
+  }
+  for (const g of ['eligible', 'blocked', 'notCandidate']) {
+    const d = (await reviewer.get('/api/dashboards/rtd?limit=500&promotion=' + g)).body;
+    assert.equal(d.filteredTotal, expected[g], g);
+    assert.ok(d.rows.every((r) => r.promotionGroup === g), g);
+    assert.equal(d.total, 300, 'KPIs ignore the table filter');
+  }
+  // Promotions: "Not Eligible" among candidates is exactly the blocked group.
+  const blockedCandidates = (await reviewer.get('/api/dashboards/promotions?eligibility=Not%20Eligible&limit=500')).body.candidatesTotal;
+  assert.equal(blockedCandidates, expected.blocked);
+  // Scoped by quick filters too.
+  const emea = (await reviewer.get('/api/dashboards/rtd?regionType=EMEA')).body;
+  assert.equal(emea.promotionGroups.eligible + emea.promotionGroups.blocked + emea.promotionGroups.notCandidate, emea.total);
+});
+
 test('rtd export: every filtered row, HR Admin only', async () => {
   assert.equal((await reviewer.get('/api/dashboards/rtd/export')).status, 403);
   const all = (await admin.get('/api/dashboards/rtd/export')).body;

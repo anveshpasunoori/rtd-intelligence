@@ -199,18 +199,6 @@
   .brand-text strong { font-family: var(--font-display); font-size: 17px; font-weight: 800; letter-spacing: 0.02em; text-transform: uppercase; }
   .brand-text span { font-size: 10px; color: rgba(255,255,255,0.72); letter-spacing: 0.08em; text-transform: uppercase; font-weight: 700; }
 
-  .sidebar-filters {
-    padding: 14px 8px 16px 8px; margin: 0 10px 4px 10px;
-    display: flex; flex-direction: column; gap: 7px;
-    border-bottom: 1px solid var(--border-soft);
-  }
-  .sidebar-filters select {
-    width: 100%; font-size: 13px; padding: 7px 9px; border-radius: var(--radius-sm);
-    border: 1px solid var(--border); background: var(--surface); color: var(--text-primary);
-    font-family: var(--font-text); outline: none; cursor: pointer;
-  }
-  .sidebar-filters select:focus { border-color: var(--accent); }
-
   .nav-scroll { flex: 1; padding: 6px 10px 16px 10px; }
   .nav-group { margin-top: 16px; }
   .nav-group:first-child { margin-top: 6px; }
@@ -338,7 +326,6 @@
   /* Collapsed sidebar (wide screens only — on narrow screens the sidebar is a drawer instead). */
   @media (min-width: 901px) {
     #app.sidebar-collapsed #sidebar { width: var(--sidebar-w-collapsed); }
-    #app.sidebar-collapsed .sidebar-filters,
     #app.sidebar-collapsed .nav-label,
     #app.sidebar-collapsed .nav-item span,
     #app.sidebar-collapsed .sidebar-collapse-btn span { display: none; }
@@ -350,6 +337,52 @@
     #app.sidebar-collapsed #topbar .brand { width: var(--sidebar-w-collapsed); padding: 0; justify-content: center; }
     #app.sidebar-collapsed #topbar .brand-text { display: none; }
   }
+
+  /* Scope bar: the filters that apply to every dashboard, in a sticky strip under the header. Each
+     chip is a label with the native select laid invisibly over it (so it opens the platform's own
+     picker on desktop and mobile); a set chip turns indigo and gets a clear button. */
+  #scopebar {
+    position: sticky; top: var(--header-h); z-index: 15;
+    background: var(--surface); border-bottom: 1px solid var(--border-soft); box-shadow: var(--shadow-sm);
+    padding: 8px 28px;
+  }
+  #scopebar[hidden] { display: none; }
+  .scope-inner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; max-width: 1400px; margin: 0 auto; }
+  .scope-title { display: inline-flex; align-items: center; gap: 6px; color: var(--text-tertiary); font-size: 12.5px; font-weight: 700; margin-right: 2px; }
+  .scope-chips { display: contents; }
+  .scope-chip {
+    position: relative; display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px;
+    border-radius: 15px; border: 1px solid var(--border); background: var(--surface); color: var(--text-secondary);
+    font-size: 12.5px; font-weight: 600; white-space: nowrap; max-width: 260px;
+  }
+  .scope-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .scope-chip .scope-chip-label { overflow: hidden; text-overflow: ellipsis; }
+  .scope-chip select { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 1; font-size: 14px; }
+  .scope-chip.on { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .scope-chip-x {
+    position: relative; z-index: 2; display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; margin-right: -6px; border: none; border-radius: 50%; padding: 0;
+    background: transparent; color: inherit; cursor: pointer;
+  }
+  .scope-chip-x:hover { background: var(--accent); color: var(--accent-contrast); }
+  .scope-clear { margin-left: auto; }
+  #scopebar .scope-toggle { display: none; }
+  .tf-group { display: inline-flex; align-items: center; gap: 8px; }
+  .scope-line { font-size: 13px; color: var(--text-secondary); }
+  .scope-line strong { color: var(--text-primary); font-weight: 700; }
+  /* One-click filters for a single table (segmented buttons). */
+  .table-filters { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
+  .table-filters .tf-label { font-size: 12px; color: var(--text-tertiary); font-weight: 700; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius-sm); overflow: hidden; background: var(--surface); }
+  .seg button {
+    border: none; border-right: 1px solid var(--border-soft); background: transparent; color: var(--text-secondary);
+    height: 30px; padding: 0 11px; font-family: var(--font-text); font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+  }
+  .seg button:last-child { border-right: none; }
+  .seg button:hover { color: var(--accent); }
+  .seg button.on { background: var(--accent-soft); color: var(--accent); }
+  .table-filters select { height: 30px; border-radius: var(--radius-sm); border: 1px solid var(--border); background: var(--surface); color: var(--text-primary); font-family: var(--font-text); font-size: 12.5px; padding: 0 8px; }
+  .tf-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text-secondary); font-weight: 600; cursor: pointer; }
 
   /* Page greeting at the top of the Executive dashboard. */
   .page-greeting { margin-bottom: 18px; }
@@ -608,6 +641,13 @@
     .topbar-admin-btn { padding: 0; }
     .brand-text span { display: none; }
     .brand { width: auto; padding: 0 14px; }
+    /* Scope bar collapses to a "Filters (n)" button that expands the chips. */
+    #scopebar { padding: 8px 16px; }
+    .scope-title { display: none; }
+    #scopebar .scope-toggle { display: inline-flex; }
+    .scope-chips { display: none; }
+    #scopebar.open .scope-chips { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; order: 3; }
+    .scope-clear { margin-left: 0; }
   }
   @media (max-width: 560px) {
     #topbar .crumb, #topbar .crumb-sep { display: none; }
@@ -655,6 +695,7 @@
     <nav id="sidebar"></nav>
     <div id="sidebar-backdrop"></div>
     <div id="main">
+      <div id="scopebar" hidden></div>
       <div id="view"></div>
     </div>
   </div>
@@ -760,7 +801,7 @@ function regionTypeForRegion(region){
 }
 function regionTypeForEmployee(e){ return regionTypeForRegion(e.region) || e.regionType || ''; }
 
-/* Sidebar quick filters (Region Type / Region / Local Grade / Practice) — a per-viewer convenience
+/* Scope filters (Region Type / Region / Local Grade / Practice / Cycle; see SCOPE BAR) — a per-viewer convenience
    narrowing of what's shown, so it lives in localStorage the same way and never touches shared
    STATE. */
 function loadQuickFilters(){
@@ -1051,7 +1092,7 @@ function queryString(params){
   });
   return parts.length ? '?'+parts.join('&') : '';
 }
-// The sidebar quick filters as API query parameters, plus any extras.
+// The scope-bar filters as API query parameters, plus any extras.
 function qfParams(extra){
   return Object.assign({ regionType: QF.regionType, region: QF.region, localGrade: QF.localGrade, practice: QF.practice }, extra||{});
 }
@@ -1459,7 +1500,6 @@ function renderSidebar(){
   var html = '<div class="sidebar-head"><strong>Menu</strong>'+
     '<button class="btn btn-icon sidebar-close-btn" id="sidebar-close-btn" title="Close menu">'+icon('x',15)+'</button>'+
     '</div>'+
-    sidebarFiltersHtml()+
     '<div class="nav-scroll">';
   NAV.forEach(function(g){
     if (g.hr && !isHR()) return;
@@ -1484,54 +1524,103 @@ function renderSidebar(){
     el.addEventListener('click', function(){ go(el.getAttribute('data-nav')); closeSidebar(); });
   });
   document.getElementById('sidebar-close-btn').addEventListener('click', closeSidebar);
-  bindSidebarFilters();
 }
-/* Small uppercase caption above a quick-filter select, matching the "QUICK FILTERS" nav-label's own
-   styling — each field gets its own heading rather than relying on the placeholder option text
-   alone. */
-function qfLabel(text){ return '<div class="nav-label" style="margin:10px 0 3px;font-size:10.5px;">'+esc(text)+'</div>'; }
-function sidebarFiltersHtml(){
-  var regionOptions = QF.regionType ? (regionTypeMap()[QF.regionType]||[]) : distinctValues('region');
-  return '<div class="sidebar-filters">'+
-    '<div class="nav-label" style="display:flex;align-items:center;justify-content:space-between;padding-right:6px;">'+
-      '<span>Quick Filters</span>'+
-      (quickFiltersActive() ? '<span class="breadcrumb-link" id="sf-clear" style="font-size:10.5px;text-transform:none;letter-spacing:0;">Clear</span>' : '')+
-    '</div>'+
-    qfLabel('Region Type')+
-    '<select id="sf-regiontype" title="Region Type"><option value="">Region Type — All</option>'+Object.keys(regionTypeMap()).map(function(v){return '<option value="'+esc(v)+'"'+(QF.regionType===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
-    qfLabel('Region')+
-    '<select id="sf-region" title="Region"><option value="">Region — All</option>'+regionOptions.map(function(v){return '<option value="'+esc(v)+'"'+(QF.region===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
-    qfLabel('Local Grade')+
-    '<select id="sf-localgrade" title="Local Grade"><option value="">Local Grade — All</option>'+distinctValues('localGrade').map(function(v){return '<option value="'+esc(v)+'"'+(QF.localGrade===v?' selected':'')+'>'+esc(localGradeName(v))+'</option>';}).join('')+'</select>'+
-    qfLabel('Practice')+
-    '<select id="sf-practice" title="Practice"><option value="">Practice — All</option>'+distinctValues('practice').map(function(v){return '<option value="'+esc(v)+'"'+(QF.practice===v?' selected':'')+'>'+esc(v)+'</option>';}).join('')+'</select>'+
-    (isHR() ? qfLabel('Year')+'<select id="sf-year" title="Year">'+
-      '<option value=""'+(!QF.year?' selected':'')+'>Year — '+esc(STATE.meta.cycleLabel)+' (current)</option>'+
-      WS.archives.map(function(a){ return '<option value="'+esc(a.cycleLabel)+'"'+(QF.year===a.cycleLabel?' selected':'')+'>'+esc(a.cycleLabel)+' (archived)</option>'; }).join('')+
-      '</select>' : '')+
+/* ============================= SCOPE BAR ============================= */
+/* The filters that apply to every dashboard (QF: cycle, region type, region, practice, local grade),
+   shown as chips in a sticky strip under the header. Page-specific filters live above each table
+   instead (see tableFilters). */
+var SCOPE_FIELDS = [
+  { key:'regionType', label:'Region type' },
+  { key:'region', label:'Region' },
+  { key:'practice', label:'Practice' },
+  { key:'localGrade', label:'Local grade' }
+];
+function scopeOptions(key){
+  if (key === 'regionType') return Object.keys(regionTypeMap());
+  if (key === 'region') return QF.regionType ? (regionTypeMap()[QF.regionType]||[]) : distinctValues('region');
+  return distinctValues(key);
+}
+// Active scope filters as "Label: value" strings (cycle included when an archived one is picked).
+function activeScopeLabels(){
+  var out = [];
+  if (QF.year && QF.year !== STATE.meta.cycleLabel) out.push('Cycle: '+QF.year);
+  SCOPE_FIELDS.forEach(function(f){ if (QF[f.key]) out.push(f.label+': '+QF[f.key]); });
+  return out;
+}
+// "Showing 86 of 300 cases · Region type: EMEA", shown under each dashboard's title so a
+// screenshot or a meeting can't misread what the numbers cover.
+function scopeLine(shown){
+  var total = WS.counts.employees, active = activeScopeLabels().filter(function(l){ return l.indexOf('Cycle:')!==0; });
+  if (!active.length) return '<span class="scope-line">All <strong>'+total+'</strong> cases</span>';
+  return '<span class="scope-line">Showing <strong>'+shown+'</strong> of '+total+' cases · '+esc(active.join(' · '))+'</span>';
+}
+function scopeChip(key, label, value, options, labelFor){
+  labelFor = labelFor || function(v){ return v; };
+  return '<div class="scope-chip'+(value?' on':'')+'">'+
+    '<span class="scope-chip-label">'+esc(value ? label+': '+labelFor(value) : label)+'</span>'+
+    (value ? '' : icon('chevronDown',12))+
+    '<select data-scope="'+key+'" aria-label="'+esc(label)+'"><option value="">'+esc(label)+' — all</option>'+
+      options.map(function(o){ return '<option value="'+esc(o.v)+'"'+(o.v===value?' selected':'')+'>'+esc(o.label)+'</option>'; }).join('')+
+    '</select>'+
+    (value ? '<button class="scope-chip-x" data-scope-clear="'+key+'" aria-label="Clear '+esc(label)+'">'+icon('x',11)+'</button>' : '')+
     '</div>';
 }
-function bindSidebarFilters(){
-  var rtSel = document.getElementById('sf-regiontype');
-  var rSel = document.getElementById('sf-region');
-  var gSel = document.getElementById('sf-localgrade');
-  var pSel = document.getElementById('sf-practice');
-  var ySel = document.getElementById('sf-year');
-  if (rtSel) rtSel.addEventListener('change', function(){
-    QF.regionType = rtSel.value;
-    // Region is scoped to the selected Region Type's list, so drop a now-out-of-scope Region
-    // choice rather than leaving a filter combination that could never match anyone.
-    var regions = regionTypeMap()[QF.regionType] || [];
-    if (QF.regionType && QF.region && regions.indexOf(QF.region)<0) QF.region = '';
-    saveQuickFilters(); renderApp();
+function renderScopeBar(show){
+  var bar = document.getElementById('scopebar');
+  if (!show){ bar.hidden = true; return; }
+  bar.hidden = false;
+  var nActive = activeScopeLabels().length;
+  var html = '<div class="scope-inner">'+
+    '<span class="scope-title">'+icon('sliders',14)+' Scope</span>'+
+    '<button class="btn btn-sm scope-toggle" id="scope-toggle">'+icon('sliders',13)+' Filters'+(nActive?' ('+nActive+')':'')+'</button>'+
+    '<div class="scope-chips">';
+  if (isHR() && WS.archives.length){
+    html += scopeChip('year', 'Cycle', QF.year && QF.year!==STATE.meta.cycleLabel ? QF.year : '',
+      WS.archives.map(function(a){ return { v:a.cycleLabel, label:a.cycleLabel+' (archived)' }; }));
+  }
+  SCOPE_FIELDS.forEach(function(f){
+    html += scopeChip(f.key, f.label, QF[f.key], scopeOptions(f.key).map(function(v){ return { v:v, label:v }; }));
   });
-  if (rSel) rSel.addEventListener('change', function(){ QF.region = rSel.value; saveQuickFilters(); renderApp(); });
-  if (gSel) gSel.addEventListener('change', function(){ QF.localGrade = gSel.value; saveQuickFilters(); renderApp(); });
-  if (pSel) pSel.addEventListener('change', function(){ QF.practice = pSel.value; saveQuickFilters(); renderApp(); });
-  if (ySel) ySel.addEventListener('change', function(){ QF.year = ySel.value; saveQuickFilters(); renderApp(); });
-  var clearLink = document.getElementById('sf-clear');
-  if (clearLink) clearLink.addEventListener('click', function(){ QF = {regionType:'', region:'', localGrade:'', practice:'', year:''}; saveQuickFilters(); renderApp(); });
+  html += '</div>'+(nActive ? '<button class="btn btn-sm scope-clear" id="scope-clear">Clear all</button>' : '')+'</div>';
+  bar.innerHTML = html;
+  Array.prototype.forEach.call(bar.querySelectorAll('[data-scope]'), function(sel){
+    sel.addEventListener('change', function(){ setScope(sel.getAttribute('data-scope'), sel.value); });
+  });
+  Array.prototype.forEach.call(bar.querySelectorAll('[data-scope-clear]'), function(btn){
+    btn.addEventListener('click', function(ev){ ev.preventDefault(); ev.stopPropagation(); setScope(btn.getAttribute('data-scope-clear'), ''); });
+  });
+  var clear = document.getElementById('scope-clear');
+  if (clear) clear.addEventListener('click', function(){ QF = {regionType:'', region:'', localGrade:'', practice:'', year:''}; saveQuickFilters(); renderApp(); });
+  document.getElementById('scope-toggle').addEventListener('click', function(){ bar.classList.toggle('open'); });
 }
+function setScope(key, value){
+  QF[key] = value || '';
+  // Region is scoped to the chosen Region Type, so drop a Region that no longer belongs to it.
+  if (key === 'regionType' && QF.regionType && QF.region && (regionTypeMap()[QF.regionType]||[]).indexOf(QF.region) < 0) QF.region = '';
+  saveQuickFilters();
+  renderApp();
+}
+
+/* ============================= TABLE FILTERS ============================= */
+// One-click (segmented) filters for a single table. `store` is the UI.filters key, `key` the filter
+// field; options are [{v, label}] with '' meaning "All".
+function segFilter(store, key, label, options){
+  var cur = (UI.filters[store]||{})[key] || '';
+  return '<span class="tf-group"><span class="tf-label">'+esc(label)+'</span><div class="seg" role="group" aria-label="'+esc(label)+'">'+
+    options.map(function(o){ return '<button type="button" class="'+(cur===o.v?'on':'')+'" data-seg-store="'+store+'" data-seg-key="'+key+'" data-seg-val="'+esc(o.v)+'">'+esc(o.label)+'</button>'; }).join('')+
+    '</div></span>';
+}
+function bindSegFilters(onChange){
+  Array.prototype.forEach.call(document.querySelectorAll('[data-seg-store]'), function(btn){
+    btn.addEventListener('click', function(){
+      var store = btn.getAttribute('data-seg-store'), key = btn.getAttribute('data-seg-key'), val = btn.getAttribute('data-seg-val');
+      var f = UI.filters[store] = UI.filters[store] || {};
+      if (val) f[key] = val; else delete f[key];
+      onChange();
+    });
+  });
+}
+
 function scopeSummaryText(){
   return isHR() ? 'Full access · all sections' : 'Standard access';
 }
@@ -1680,7 +1769,7 @@ function distinctValues(field){
   // Filter options come from the server (GET /api/workspace → options), not from the roster.
   return (WS && WS.options && WS.options[field]) || [];
 }
-/* Region / Local Grade / Practice also exist as sidebar Quick Filters (QF, shared across every
+/* Region / Local Grade / Practice also exist as scope-bar filters (QF, shared across every
    page). A page's own filter bar can offer them too for convenience, but that selection needs to
    BE the same shared QF value — not a second, page-local copy — or picking one on, say, RTD Review
    silently stops applying the moment you navigate to Executive/Promotions/Calibration, even though
@@ -1734,14 +1823,14 @@ function bindFilterBar(storeKey, onChange){
 function viewExecutiveDashboard(){
   loadView('/api/dashboards/executive'+queryString(qfParams({ q: UI.search.trim() })), function(d){
     if (!d.total){
-      document.getElementById('view').innerHTML = '<div class="empty-state">No cases match the current Quick Filters.</div>';
+      document.getElementById('view').innerHTML = '<div class="empty-state">No cases match the current scope. Change or clear the filters above.</div>';
       return;
     }
     var total = d.total;
     var avgRatingRank = d.avgRatingIndex;
     var eligCounts = d.eligibilityCounts;
     var html = '<div class="page-greeting"><h1>Hi <span>'+esc(greetingName())+'</span>, Welcome back</h1>'+
-      '<div class="section-sub">'+esc(STATE.meta.cycleLabel)+' at a glance'+(quickFiltersActive()?' — filtered by the sidebar Quick Filters':'')+'</div></div>';
+      '<div class="section-sub">'+esc(STATE.meta.cycleLabel)+' at a glance · '+scopeLine(total)+'</div></div>';
     html += '<div class="kpi-grid">'+
       kpiTile('Active Cases', total, icon('folder',14), null)+
       kpiTile('Avg. Rating Index (of 3)', avgRatingRank.toFixed(2), icon('trend',14), avgRatingRank>=1.5?'On track':'Watch')+
@@ -1753,8 +1842,10 @@ function viewExecutiveDashboard(){
     html += '<div class="card card-pad chart-card"><div class="section-title">Rating distribution</div><div class="section-sub">Computed final ratings across the active RTD population</div>'+
       svgBarChart(RATINGS.map(function(r,i){return {label:r, value: d.ratingCounts[r], color:['var(--critical)','var(--warning)','var(--success)','var(--special)'][i]};}), {height:200})+
       '</div>';
-    var eligData = [{label:'Eligible',value:eligCounts['Eligible'],color:'var(--success)'},{label:'Eligible With Exception',value:eligCounts['Eligible With Exception'],color:'var(--warning)'},{label:'Not Eligible',value:eligCounts['Not Eligible'],color:'var(--critical)'}];
-    html += '<div class="card card-pad chart-card"><div class="section-title">Promotion eligibility</div><div class="section-sub">System-computed status</div>'+
+    var groups = d.promotionGroups;
+    var eligData = [{label:'Eligible',value:eligCounts['Eligible'],color:'var(--success)'},{label:'Eligible with exception',value:eligCounts['Eligible With Exception'],color:'var(--warning)'},
+      {label:'Blocked',value:groups.blocked,color:'var(--critical)'},{label:'Not a candidate',value:groups.notCandidate,color:'var(--border)'}];
+    html += '<div class="card card-pad chart-card"><div class="section-title">Promotion eligibility</div><div class="section-sub">Blocked = recommended but held back by a rule</div>'+
       '<div style="display:flex;align-items:center;gap:20px;">'+svgDonut(eligData)+legendRow(eligData)+'</div></div>';
     html += '</div>';
 
@@ -1852,30 +1943,33 @@ var RTD_PAGE = 100;
 var RTD_DATA = null;
 function rtdQuery(extra){
   var f = UI.filters['rtd']||{};
-  return qfParams(Object.assign({ rating:f.rating, eligibility:f.eligibility, risk:f.risk, q:UI.search.trim(), sort:RTD_SORT.field, dir:RTD_SORT.dir }, extra||{}));
+  return qfParams(Object.assign({ rating:f.rating, promotion:f.promotion, risk:f.risk, q:UI.search.trim(), sort:RTD_SORT.field, dir:RTD_SORT.dir }, extra||{}));
 }
 function viewRTDDashboard(){
   loadView('/api/dashboards/rtd'+queryString(rtdQuery({ limit: RTD_PAGE })), function(d){ RTD_DATA = d; renderRTDDashboard(d); });
 }
 function renderRTDDashboard(d){
-  var totalCases = d.total, eligibleN = d.eligible, notEligibleN = d.notEligible, avgConfidence = d.avgConfidence;
+  var totalCases = d.total, eligibleN = d.eligible, avgConfidence = d.avgConfidence;
+  var blockedN = d.promotionGroups.blocked, notCandN = d.promotionGroups.notCandidate;
+  var activePromo = (UI.filters['rtd']||{}).promotion;
   var html = '<div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;">'+
-    '<div><div class="section-title">RTD Review</div><div class="section-sub">'+d.filteredTotal+' of '+totalCases+' cases · click a row to open the full dossier</div></div>'+
+    '<div><div class="section-title">RTD Review</div><div class="section-sub">'+scopeLine(totalCases)+'</div></div>'+
     (isHR() ? '<button class="btn btn-sm" id="export-rtd-results">'+icon('folder',12)+' Export results (Excel)</button>' : '')+
     '</div>';
 
   html += '<div class="kpi-grid" style="margin:16px 0 18px;">'+
-    kpiCardV2('Total Cases', totalCases, icon('users',16), 'accent', 'Require review')+
-    kpiCardV2('Promotion Eligible', eligibleN, icon('check',16), 'success', 'Ready for promotion')+
-    kpiCardV2('Not Eligible', notEligibleN, icon('x',16), 'critical', 'Have blockers')+
-    kpiCardV2('Avg. Confidence', avgConfidence+'%', icon('star',16), 'special', miniProgressBar(avgConfidence))+
+    kpiCardV2('Total Cases', totalCases, icon('users',16), 'accent', 'In this scope')+
+    kpiCardV2('Eligible', eligibleN, icon('check',16), 'success', 'Promotion eligible', 'data-kpi-promo="eligible"', activePromo==='eligible')+
+    kpiCardV2('Blocked', blockedN, icon('alert',16), 'critical', 'Recommended, held back by a rule', 'data-kpi-promo="blocked"', activePromo==='blocked')+
+    kpiCardV2('Not a Candidate', notCandN, icon('x',16), 'special', 'Not recommended this cycle', 'data-kpi-promo="notCandidate"', activePromo==='notCandidate')+
     '</div>';
 
   var insightsHtml = '<div class="card card-pad">'+
     '<div class="section-title" style="font-size:15px;">Key insights</div>'+
     '<div class="reason-list" style="margin-top:10px;">'+
     '<div class="reason-item">'+statusIcon('check','success')+'<span><strong>'+eligibleN+'</strong> employee'+(eligibleN===1?' is':'s are')+' promotion eligible<div class="table-sub">'+(totalCases?Math.round(eligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
-    '<div class="reason-item">'+statusIcon('alert','critical')+'<span><strong>'+notEligibleN+'</strong> employee'+(notEligibleN===1?' has':'s have')+' blockers<div class="table-sub">'+(totalCases?Math.round(notEligibleN/totalCases*100):0)+'% of total cases</div></span></div>'+
+    '<div class="reason-item">'+statusIcon('alert','critical')+'<span><strong>'+blockedN+'</strong> recommended employee'+(blockedN===1?' is':'s are')+' blocked<div class="table-sub">Held back by a rule — see Top blockers</div></span></div>'+
+    '<div class="reason-item">'+statusIcon('x','special')+'<span><strong>'+notCandN+'</strong> '+(notCandN===1?'is':'are')+' not a candidate this cycle<div class="table-sub">Not recommended for promotion</div></span></div>'+
     '<div class="reason-item">'+statusIcon('star','special')+'<span><strong>Average confidence score</strong>'+miniProgressBar(avgConfidence)+'</span></div>'+
     '</div>'+
     (d.topBlockers.length ? '<hr class="divider"/><div class="section-title" style="font-size:14px;">Top blockers</div><div style="margin-top:6px;">'+
@@ -1884,14 +1978,13 @@ function renderRTDDashboard(d){
     '<button class="btn btn-primary" id="rtd-review-all" style="width:100%;margin-top:14px;">Review all cases '+icon('arrowUpRight',13)+'</button>'+
     '</div>';
 
-  var mainHtml = '';
-  if ((UI.filters['rtd']||{}).risk) mainHtml += '<div class="table-sub" style="margin:0 0 10px;">Showing only cases flagged for risk. <span class="breadcrumb-link" id="clear-risk-filter">Clear</span></div>';
-  mainHtml += filterBar([
-    {field:'region', label:'Region'},
-    {field:'rating', label:'Rating', options:RATINGS},
-    {field:'eligibility', label:'Promotion', options:['Eligible','Eligible With Exception','Not Eligible']},
-    {field:'localGrade', label:'Local Grade'},
-  ], 'rtd');
+  var rf = UI.filters['rtd']||{};
+  var mainHtml = '<div class="table-filters">'+
+    segFilter('rtd', 'rating', 'Rating', [{v:'',label:'All'},{v:'Needs Improvement',label:'NI'},{v:'Succeeding',label:'Succeeding'},{v:'Exceeding',label:'Exceeding'},{v:'Exceptional',label:'Exceptional'}])+
+    segFilter('rtd', 'promotion', 'Promotion', [{v:'',label:'All'},{v:'eligible',label:'Eligible'},{v:'blocked',label:'Blocked'},{v:'notCandidate',label:'Not a candidate'}])+
+    '<label class="tf-check"><input type="checkbox" id="rtd-risk-only"'+(rf.risk?' checked':'')+'/> At risk only</label>'+
+    '<span class="table-sub" style="margin-left:auto;">'+d.filteredTotal+' of '+totalCases+' in the table</span>'+
+    '</div>';
 
   mainHtml += '<div class="card table-scroll"><table><thead><tr>'+
     thSort('Employee','name')+'<th>Year</th>'+thSort('Grade','grade')+thSort('People Manager','peopleManager')+
@@ -1920,9 +2013,20 @@ function renderRTDDashboard(d){
   html += '<div class="grid-main-side"><div style="min-width:0;">'+mainHtml+'</div>'+insightsHtml+'</div>';
 
   document.getElementById('view').innerHTML = html;
-  bindFilterBar('rtd', function(){ viewRTDDashboard(); });
-  var clearRiskBtn = document.getElementById('clear-risk-filter');
-  if (clearRiskBtn) clearRiskBtn.addEventListener('click', function(){ delete UI.filters['rtd'].risk; viewRTDDashboard(); });
+  bindSegFilters(function(){ viewRTDDashboard(); });
+  document.getElementById('rtd-risk-only').addEventListener('change', function(ev){
+    var f = UI.filters['rtd'] = UI.filters['rtd'] || {};
+    if (ev.target.checked) f.risk = '1'; else delete f.risk;
+    viewRTDDashboard();
+  });
+  Array.prototype.forEach.call(document.querySelectorAll('[data-kpi-promo]'), function(el){
+    el.addEventListener('click', function(){
+      var val = el.getAttribute('data-kpi-promo');
+      var f = UI.filters['rtd'] = UI.filters['rtd'] || {};
+      if (f.promotion===val) delete f.promotion; else f.promotion = val;
+      viewRTDDashboard();
+    });
+  });
   bindGoLinks();
   Array.prototype.forEach.call(document.querySelectorAll('[data-sort]'), function(el){
     el.addEventListener('click', function(){
@@ -1992,16 +2096,18 @@ function renderPromotionDashboard(d){
   var funnel = d.funnel;
   var eligibleCount = d.eligibilityCounts['Eligible'];
   var exceptionCount = d.eligibilityCounts['Eligible With Exception'];
-  var notEligibleCount = d.eligibilityCounts['Not Eligible'];
+  var blockedCount = d.promotionGroups.blocked;
+  var notCandidateCount = d.promotionGroups.notCandidate;
+  var scopeTotal = d.promotionGroups.eligible + blockedCount + notCandidateCount;
   var activeEligFilter = (UI.filters['promo']||{}).eligibility;
   var searchQ = UI.search.trim();
   var candidates = d.candidates;
 
-  var html = '<div class="kpi-grid">'+
+  var html = '<div class="section-sub" style="margin-bottom:12px;">'+scopeLine(scopeTotal)+'</div><div class="kpi-grid">'+
     kpiCardV2('Promotion Recommendations', funnel[0].value, icon('award',16), 'accent', 'Manager recommended this cycle')+
     kpiCardV2('Eligible', eligibleCount, icon('check',16), 'success', 'Ready for promotion', 'data-kpi-elig="Eligible"', activeEligFilter==='Eligible')+
     kpiCardV2('Eligible with Exception', exceptionCount, icon('alert',16), 'warning', 'Needs HR sign-off', 'data-kpi-elig="Eligible With Exception"', activeEligFilter==='Eligible With Exception')+
-    kpiCardV2('Not Eligible', notEligibleCount, icon('x',16), 'critical', 'Requires development', 'data-kpi-elig="Not Eligible"', activeEligFilter==='Not Eligible')+
+    kpiCardV2('Blocked', blockedCount, icon('x',16), 'critical', 'Recommended, held back by a rule', 'data-kpi-elig="Not Eligible"', activeEligFilter==='Not Eligible')+
     '</div>';
 
   var funnelData = funnel.map(function(f,i){ return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--border)'][i], textColor: i===3 ? 'var(--text-primary)' : null}; });
@@ -2014,7 +2120,8 @@ function renderPromotionDashboard(d){
     '<div class="section-title" style="font-size:15px;">Key insights</div>'+
     '<div class="reason-list" style="margin-top:10px;">'+
     '<div class="reason-item">'+statusIcon('check','success')+'<span><strong>'+readyN+'</strong> employee'+(readyN===1?' is':'s are')+' promotion-ready and eligible for promotion</span></div>'+
-    '<div class="reason-item">'+statusIcon('alert','critical')+'<span><strong>'+notEligibleCount+'</strong> employee'+(notEligibleCount===1?' currently has':'s currently have')+' eligibility blockers</span></div>'+
+    '<div class="reason-item">'+statusIcon('alert','critical')+'<span><strong>'+blockedCount+'</strong> recommended employee'+(blockedCount===1?' is':'s are')+' blocked by a rule</span></div>'+
+    '<div class="reason-item">'+statusIcon('x','special')+'<span><strong>'+notCandidateCount+'</strong> '+(notCandidateCount===1?'is':'are')+' not a candidate this cycle</span></div>'+
     '<div class="reason-item">'+statusIcon(exceptionCount?'alert':'check', exceptionCount?'warning':'success')+'<span>'+(exceptionCount? '<strong>'+exceptionCount+'</strong> employee'+(exceptionCount===1?' needs':'s need')+' exception approval' : 'No exception approvals required')+'</span></div>'+
     '</div>'+
     (topPractice ? '<hr class="divider"/><div style="font-size:12px;color:var(--text-secondary);margin-bottom:4px;">Top practice by readiness</div>'+
@@ -2038,7 +2145,12 @@ function renderPromotionDashboard(d){
   html += '<div style="margin-top:18px;" class="section-title">Promotion candidates</div><div class="section-sub">'+
     (searchQ ? d.candidatesTotal+' of '+d.candidatesBeforeSearch+' cases match "'+esc(searchQ)+'"' : d.candidatesTotal+' cases with a recommendation or a non-blocking eligibility status')+
     '</div>';
-  html += filterBar([{field:'region',label:'Region'},{field:'practice',label:'Practice'},{field:'globalGrade',label:'Grade'},{field:'eligibility',label:'Eligibility',options:['Eligible','Eligible With Exception','Not Eligible']}],'promo');
+  var pf = UI.filters['promo']||{};
+  html += '<div class="table-filters">'+
+    segFilter('promo', 'eligibility', 'Eligibility', [{v:'',label:'All'},{v:'Eligible',label:'Eligible'},{v:'Eligible With Exception',label:'With exception'},{v:'Not Eligible',label:'Blocked'}])+
+    '<span class="tf-group"><span class="tf-label">Grade</span><select id="promo-grade"><option value="">All</option>'+
+      distinctValues('globalGrade').map(function(g){ return '<option value="'+esc(g)+'"'+(pf.globalGrade===g?' selected':'')+'>'+esc(g)+'</option>'; }).join('')+'</select></span>'+
+    '</div>';
 
   if (!PROMO_TABS.some(function(t){ return t[0]===PROMO_TAB; })) PROMO_TAB = 'candidates';
   html += '<div class="tab-row">'+PROMO_TABS.map(function(t){ return '<div class="tab-btn'+(PROMO_TAB===t[0]?' active':'')+'" data-ptab="'+t[0]+'">'+t[1]+'</div>'; }).join('')+'</div>';
@@ -2046,7 +2158,12 @@ function renderPromotionDashboard(d){
     loadMoreHtml('promo-load-more', candidates.length, d.candidatesTotal)+'</div>';
 
   document.getElementById('view').innerHTML = html;
-  bindFilterBar('promo', function(){ viewPromotionDashboard(); });
+  bindSegFilters(function(){ viewPromotionDashboard(); });
+  document.getElementById('promo-grade').addEventListener('change', function(ev){
+    var f = UI.filters['promo'] = UI.filters['promo'] || {};
+    if (ev.target.value) f.globalGrade = ev.target.value; else delete f.globalGrade;
+    viewPromotionDashboard();
+  });
   bindGoLinks();
   Array.prototype.forEach.call(document.querySelectorAll('[data-ptab]'), function(el){
     el.addEventListener('click', function(){ PROMO_TAB = el.getAttribute('data-ptab'); renderPromotionDashboard(PROMO_DATA); });
@@ -2265,7 +2382,7 @@ function openEditCoreDetailsModal(empId){
 var READINESS_ORDER = ['Not Ready', 'Ready 2+ Yrs', 'Ready 1-2 Yrs', 'Ready Now'];
 function viewCalibrationDashboard(){
   loadView('/api/dashboards/calibration'+queryString(qfParams()), function(d){
-    var html = '<div class="section-title">Rating calibration</div><div class="section-sub">Compare the overall shape against an idealized curve to spot outlier leniency or severity before RTD sign-off</div>';
+    var html = '<div class="section-title">Rating calibration</div><div class="section-sub">Compare the overall shape against an idealized curve to spot outlier leniency or severity before RTD sign-off · '+scopeLine(d.total)+'</div>';
     html += '<div class="card card-pad chart-card" style="margin-top:16px;"><div class="section-title">Rating distribution vs. bell curve</div>'+
       '<div class="section-sub">Actual counts (bars) against an idealized ~13/37/37/13% bell-shaped distribution (line) scaled to the same population — a shape that leans well off the curve is worth a second look before sign-off.</div>'+
       svgBellCurveOverlay(RATINGS.map(function(r,i){return {label:r, value:d.ratingCounts[r], color:['var(--critical)','var(--warning)','var(--success)','var(--special)'][i]};}), {height:220})+
@@ -4203,6 +4320,7 @@ function renderApp(){
   renderSidebar();
 
   if (ROUTE_HR[top] && !isHR()){
+    renderScopeBar(false);
     renderTopbar();
     viewAccessRestricted('This section is available to HR Admin only. Open Account in the upper-right corner to sign in as an HR Admin.');
     window.scrollTo(0,0);
@@ -4214,6 +4332,7 @@ function renderApp(){
   // quick filters at all and are unaffected. HR-gated same as Archives, since this surfaces the
   // same historical data.
   var DASH_ROUTES = ['dash-exec','dash-rtd','dash-promo','dash-calib'];
+  renderScopeBar(DASH_ROUTES.indexOf(top) >= 0);
   if (QF.year && QF.year!==STATE.meta.cycleLabel && isHR() && DASH_ROUTES.indexOf(top)>=0){
     renderTopbar('Historical snapshot');
     viewYearSnapshot(QF.year);
