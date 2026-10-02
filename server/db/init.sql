@@ -9,31 +9,11 @@ create table if not exists users (
   id uuid primary key default gen_random_uuid(),
   email text not null unique,
   password_hash text not null,
+  -- Access level: 'HR Admin' (full access: overrides, data load, archives, administration, audit
+  -- log) or 'RTD Reviewer' (read access). Granted by hand in psql — see README.md.
+  role text not null default 'RTD Reviewer' check (role in ('HR Admin', 'RTD Reviewer')),
   created_at timestamptz not null default now()
 );
 
--- The whole app state (employees, archives, upload batches, rules, audit log, ...) as one JSON
--- document per user, the same shape the app already keeps in memory. See server.js/README.md for
--- why: it gets real persistence and real login without a risky rewrite of every feature's
--- internals into separate relational tables. One row per user for now (single-tenant per login);
--- extending this to a shared team workspace later is a small change, not a redesign.
-create table if not exists app_state (
-  id uuid primary key default gen_random_uuid(),
-  owner uuid not null unique references users(id) on delete cascade,
-  data jsonb not null,
-  created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
-);
-
-create or replace function set_app_state_updated_at()
-returns trigger as $$
-begin
-  new.updated_at = now();
-  return new;
-end;
-$$ language plpgsql;
-
-drop trigger if exists app_state_set_updated_at on app_state;
-create trigger app_state_set_updated_at
-before update on app_state
-for each row execute function set_app_state_updated_at();
+-- All other tables (shared workspace, employees, workflow, upload batches, archives, audit log, ...)
+-- are created and upgraded by db/schema.sql, which server.js runs on every start.

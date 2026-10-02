@@ -5,7 +5,8 @@
   "description": "Self-hosted backend for RTD Intelligence: real login + Postgres storage in place of browser localStorage.",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
@@ -15,6 +16,7 @@
     "cookie-parser": "^1.4.6",
     "dotenv": "^16.4.5",
     "helmet": "^7.1.0",
-    "express-rate-limit": "^7.4.0"
+    "express-rate-limit": "^7.4.0",
+    "compression": "^1.7.4"
   }
 }

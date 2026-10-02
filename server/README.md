@@ -7,27 +7,31 @@ company infrastructure — nothing here talks to any third-party service.
 
 ## What this actually is
 
-- `public/index.html` — the app itself (unchanged in almost every feature; the only difference from
-  the version you already know is *how* it saves and loads data).
-- `server.js` — a small Express server: serves the app, handles login/registration, and stores/
-  loads each user's data in Postgres instead of that browser's local storage.
-- `db/init.sql` — the two tables this needs (`users`, `app_state`). Runs automatically the first
-  time the database container starts.
+- `public/index.html` — the app itself.
+- `server.js` — Express server: serves the app, login/registration, and mounts the API.
+- `routes/api.js` — saving (`/api/sync`), Annual Data Load and cycle-archive endpoints (see **API** below).
+- `lib/dataload.js` — the Annual Data Load rules (matching, merging, data-quality flags).
+- `lib/engine.js` — the RTD rules engine (ratings, eligibility, risk, confidence, quotas, rule impact).
+- `lib/cases.js` — computed cases for the whole roster, cached and rebuilt after each change.
+- `routes/dashboards.js` — workspace, dashboard, dossier, search, rule-impact, audit and archive reads.
+- `lib/store.js` — database access.
+- `db/schema.sql` — every table; run automatically on each server start (creates or upgrades).
+- `db/seed.json` — demo roster loaded into a brand-new database (skip with `SEED_DEMO_DATA=false`).
+- `test/` — automated tests (see **Running the tests**).
 - `Dockerfile` + `docker-compose.yml` — packages the app and a Postgres database together so this
   can be deployed with two commands on a server that has nothing else installed on it yet.
 
-**Design note:** rather than break every piece of app state (employees, archives, rules, quotas,
-audit log, …) into a dozen separate relational tables, this stores the whole app state as one JSON
-document per logged-in user — the same shape the app already keeps in memory. That's what actually
-fixes what was broken (data disappearing, no real login, hardcoded default users) without a risky
-rewrite of every feature's internals. Splitting it into normalized tables for real cross-employee
-SQL reporting is a reasonable next step later; it isn't required for this to work correctly today.
+**Data model:** one shared, org-wide workspace. Everyone who logs in sees the same data: when an HR
+Admin runs the Annual Data Load, every reviewer sees the new roster. Records live in their own
+tables (`employees`, `workflow`, `accounts`, `contributions`, `manager_records`, `upload_batches` +
+`upload_batch_items`, `archives`, `audit_log`); workspace-wide settings (cycle label, rules engine,
+Administration reference data) are one JSON document in `workspace`. The browser sends only what
+changed when you save, so two people editing different employees don't overwrite each other; two
+admins editing *settings* at once get a "changed by someone else" message instead of a silent
+overwrite.
 
-**Data model today:** one account, one dataset. Whoever registers an account gets their own private
-copy of the data (starting from the same seed data the app always shipped with), which follows them
-across machines and browsers as long as they log in. If down the road multiple people need to see
-and edit the *same* shared dataset, that's a small extension of this same design (a shared
-workspace instead of one dataset per account) — flag it and it can be added without starting over.
+A brand-new database starts with the demo roster. Clear it from **Annual Data Load → Danger zone**
+before loading real data, or set `SEED_DEMO_DATA=false` in `.env` before the first start.
 
 ## Deploying it (for IT / DevOps)
 
@@ -63,6 +67,15 @@ Data lives in a Docker-managed volume (`rtd_pgdata`) that survives container res
 `docker compose exec db pg_dump -U rtd rtd > backup.sql` on whatever schedule your normal backup
 process uses.
 
+### Granting admin access
+
+New accounts start as **RTD Reviewer** (read access). To give someone **HR Admin** (full access:
+overrides, data load, archives, Administration, audit log), run:
+```
+docker compose exec db psql -U rtd -d rtd -c "update users set role='HR Admin' where email='someone@example.com';"
+```
+Set `role='RTD Reviewer'` to revoke. It takes effect the next time they load the page.
+
 ### Putting this behind your normal web server / TLS
 
 This app listens on plain HTTP inside its container. If your standard setup is to put a reverse
@@ -79,15 +92,62 @@ docker compose up -d --build
 ```
 Existing data is untouched — it lives in the `rtd_pgdata` volume, separate from the app containers.
 
-## Local development / testing (without Docker)
+## API
 
-If you want to run this directly instead of through Docker (e.g. to test a change):
+All endpoints are JSON under `/api`, authenticated by the session cookie. The browser never downloads
+the roster: the rules engine (`lib/engine.js`) runs on the server, which keeps every computed case in
+memory and rebuilds them after any change (`lib/cases.js`); each screen asks for its aggregates and one
+page of rows. Responses are gzip-compressed. **Admin** = HR Admin only
+(403 otherwise); a missing/expired session gets 401.
+
+| Method & path | Who | What it does |
+|---|---|---|
+| `POST /api/auth/register` · `/login` · `/logout`, `GET /api/auth/me` | anyone | Accounts and sessions; `me` returns `{email, role}` |
+| `GET /api/workspace` | any user | Settings (rules, admin config, cycle), record counts, filter options, archived-cycle list, and (Admin) this cycle's uploads — no records |
+| `GET /api/dashboards/executive` | any user | KPIs, rating/eligibility counts, compliance and the first flagged cases |
+| `GET /api/dashboards/rtd` | any user | RTD Review KPIs, top blockers and one page of rows (`rating`, `eligibility`, `risk=1`, `q`, `sort`, `dir`, `offset`, `limit`) |
+| `GET /api/dashboards/rtd/export` | Admin | Every row the RTD Review filters match, with the Excel export columns |
+| `GET /api/dashboards/promotions` | any user | Funnel, KPIs, insights and one page of candidates with promotion-quota positions (`eligibility`, `globalGrade`, `q`, paging) |
+| `GET /api/dashboards/calibration` | any user | Rating and promotion-readiness distributions |
+| `GET /api/employees/:id` | any user | One dossier: the record, its accounts, contributions, manager record, workflow and computed case |
+| `GET /api/employees/search?q=` | any user | Employees matching a name or GGID, and whether any practice matches |
+| `GET /api/rules/:id/impact` | Admin | How many cases a rule affects (Rules Engine → Test) |
+| `GET /api/audit` | Admin | Audit log, newest first (`entity`, `fieldPrefix`, `offset`, `limit`) |
+| `GET /api/archives/:id/cases` | Admin | An archived cycle's case summaries with rating/eligibility counts (quick filters, paging) |
+| `GET /api/archives/:id` | Admin | One archived cycle with its full snapshot |
+| `POST /api/sync` | any user (see below) | Saves changes: `patch.employees` (`[{id, set}]` — only the given fields), `upsert`/`remove` per collection (Admin), new `audit` entries, and `settings` + `baseVersion` (Admin; 409 if stale). An RTD Reviewer may only change an employee's primary account |
+| `GET /api/data-load/template` | Admin | CSV template |
+| `GET /api/data-load/export` | Admin | Current roster as CSV (same columns; re-uploadable) |
+| `POST /api/data-load/preview` | Admin | `{rows}` → per-row action (`create`/`update`), matched employee and data-quality issues; saves nothing |
+| `POST /api/data-load/commit` | Admin | `{fileName, rows, actorName}` → applies the upload in one transaction; returns a summary |
+| `GET /api/data-load/batches` | Admin | Uploads committed this cycle |
+| `DELETE /api/data-load/batches/:id` | Admin | Undoes one upload: deletes what it created, restores what it updated |
+| `POST /api/data-load/remove-all` | Admin | Deletes every employee record (keeps archives and the audit log) |
+| `POST /api/data-load/factory-reset` | Admin | `{confirm: "DELETE EVERYTHING"}` → also deletes archives and the audit log |
+| `POST /api/cycles/archive` | Admin | `{nextLabel}` → snapshots every record and each case's computed outcome, resets every workflow to step 1, starts the next cycle |
+
+Upload rows are objects keyed by column header; headers are matched to the template loosely
+("Global Grade", "Employee Name", "Work Email", ... all work). A row matches an existing employee
+by GGID, else by email (case-insensitive); otherwise it's a new case. Rows with missing data are
+still loaded and flagged. Up to 50,000 rows per upload.
+
+## Running the tests
+
+The suite runs the real server against a throwaway database whose name must end in `_test` (it is
+wiped on every run):
+
+```
+docker compose exec db psql -U rtd -d rtd -c "create database rtd_test owner rtd"   # once
+docker compose build app
+docker compose run --rm --no-deps -e TEST_DATABASE_URL="postgres://rtd:<POSTGRES_PASSWORD>@db:5432/rtd_test" app npm test
+```
+
+## Local development (without Docker)
 
 ```
 npm install
-# Postgres must already be running locally, with a database matching db/init.sql applied
-cp .env.example .env   # then edit DATABASE_URL to point at your local Postgres
-node server.js
+cp .env.example .env   # then set DATABASE_URL to your local Postgres
+node server.js         # creates/upgrades the tables on start
 ```
 
 ## Security notes
