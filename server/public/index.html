@@ -407,8 +407,10 @@
   .grid-2 { display: grid; grid-template-columns: 1.3fr 1fr; gap: 16px; }
   .grid-2-eq { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
   .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  /* Promotions top row: the funnel gets the widest column so its labels stay readable. */
+  .grid-promo { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 16px; }
   .grid-main-side { display: grid; grid-template-columns: 2.2fr 1fr; gap: 16px; align-items: start; }
-  @media (max-width: 980px) { .grid-2, .grid-2-eq, .grid-3, .grid-main-side { grid-template-columns: 1fr; } }
+  @media (max-width: 980px) { .grid-2, .grid-2-eq, .grid-3, .grid-promo, .grid-main-side { grid-template-columns: 1fr; } }
 
   .pill {
     display: inline-flex; align-items: center; gap: 5px;
@@ -1199,49 +1201,40 @@ function dossierAchievementNote(c){
 }
 
 /* ============================= CHART PRIMITIVES (inline SVG) ============================= */
-/* A literal funnel — stacked trapezoid bands narrowing top to bottom, each band's width scaled to
-   its value relative to the first (widest) stage. A band with 0 value still renders a thin sliver
-   rather than collapsing to nothing, so a fully-empty stage stays visible instead of vanishing. */
-function svgFunnelChart(data, opts){
-  opts = opts || {};
-  var w = opts.width || 220, h = opts.height || 190, pad = 8, gap = 5;
+/* Stacked 3D-style funnel: one tapered band per stage, each a fixed step narrower than the one above
+   (the shape is a visual guide, not data-scaled — these stages are independent criteria, so a later
+   stage can outnumber an earlier one, and a 0 stage must still show). Each band has an elliptical
+   rim on top and a curved bottom, its count printed inside, and its label plus percentage of the
+   largest stage on the left with a connector line in the band's color.
+   data: [{label, value, color, textColor?}] */
+function svgFunnelChart(data){
   var n = data.length;
-  var maxV = Math.max.apply(null, data.map(function(d){return d.value;}).concat([1]));
-  var minFrac = 0.16;
-  var widths = data.map(function(d){
-    var f = maxV ? d.value/maxV : 0;
-    return Math.max(f, d.value>0 ? minFrac : minFrac*0.5) * (w - pad*2);
-  });
-  var bandH = (h - gap*(n-1)) / n;
-  var cx = w/2;
-  var bands = data.map(function(d,i){
-    var topW = widths[i];
-    var botW = i < n-1 ? widths[i+1] : widths[i]*0.86;
-    var yTop = i*(bandH+gap), yBot = yTop+bandH;
-    var x1=cx-topW/2, x2=cx+topW/2, x3=cx+botW/2, x4=cx-botW/2;
-    return '<path d="M'+x1+','+yTop+' L'+x2+','+yTop+' L'+x3+','+yBot+' L'+x4+','+yBot+' Z" fill="'+(d.color||'var(--accent)')+'"/>';
-  }).join('');
-  return '<svg viewBox="0 0 '+w+' '+h+'" width="100%" height="'+h+'" preserveAspectRatio="xMidYMid meet">'+bands+'</svg>';
-}
-/* Legend rows alongside the funnel above — percentage of the first (widest) stage, the raw count,
-   and the stage label, each tagged with the same color as its band. */
-function funnelLegendList(data){
-  // Percentage is of the largest stage present, not necessarily the first — these stages are
-  // independent criteria (e.g. "Ready Now" readiness vs. "Recommended"), not a strict funnel
-  // where each step is a subset of the last, so a later stage can honestly outnumber an earlier
-  // one. Sizing against the max keeps every percentage <=100% and matches how the bands are
-  // actually drawn, instead of a "% of stage one" figure that can run past 100.
+  var W = 380, labelX = 128, fx0 = 146, fx1 = W - 6, cx = (fx0 + fx1) / 2;
+  var maxTop = fx1 - fx0, minBot = maxTop * 0.32;
+  var bandH = 40, gap = 7, ry = 7, top = ry + 1;
+  var H = top + n * bandH + (n - 1) * gap + ry + 2;
+  var step = (maxTop - minBot) / n;
   var maxV = Math.max.apply(null, data.map(function(d){ return d.value; }).concat([1]));
-  return '<div style="display:flex;flex-direction:column;gap:12px;justify-content:center;height:100%;">'+
-    data.map(function(d){
-      var pct = maxV ? Math.round(d.value/maxV*100) : 0;
-      return '<div style="display:flex;align-items:flex-start;gap:8px;">'+
-        '<span style="width:10px;height:10px;border-radius:3px;background:'+(d.color||'var(--accent)')+';flex-shrink:0;margin-top:3px;"></span>'+
-        '<div><div style="font-size:13px;font-weight:700;">'+pct+'% <span class="table-sub" style="font-weight:600;">('+d.value+')</span></div>'+
-        '<div class="table-sub">'+esc(d.label)+'</div></div>'+
-        '</div>';
-    }).join('')+
-    '</div>';
+  var parts = data.map(function(d, i){
+    var tw = maxTop - i * step, bw = tw - step;
+    var y0 = top + i * (bandH + gap), y1 = y0 + bandH, ym = (y0 + y1) / 2;
+    var color = d.color || 'var(--accent)';
+    var lx = cx - tw / 2, rx = cx + tw / 2, blx = cx - bw / 2, brx = cx + bw / 2;
+    var body = 'M'+lx+','+y0+' L'+blx+','+y1+' Q'+cx+','+(y1 + ry * 2)+' '+brx+','+y1+' L'+rx+','+y0+' Z';
+    var edgeX = cx - (tw + bw) / 4;
+    var pct = Math.round(d.value / maxV * 100);
+    var txt = d.textColor || '#ffffff';
+    return '<g>'+
+      '<path d="'+body+'" fill="'+color+'"/>'+
+      '<ellipse cx="'+cx+'" cy="'+y0+'" rx="'+(tw / 2)+'" ry="'+ry+'" fill="'+color+'"/>'+
+      '<ellipse cx="'+cx+'" cy="'+y0+'" rx="'+(tw / 2)+'" ry="'+ry+'" fill="#000" fill-opacity="0.13"/>'+
+      '<text x="'+cx+'" y="'+(ym + 6)+'" text-anchor="middle" font-size="17" font-weight="800" fill="'+txt+'" style="font-family:var(--font-display);">'+d.value+'</text>'+
+      '<line x1="'+(labelX + 4)+'" y1="'+ym+'" x2="'+(edgeX - 3)+'" y2="'+ym+'" stroke="'+color+'" stroke-width="1.5"/>'+
+      '<text x="'+labelX+'" y="'+(ym - 2)+'" text-anchor="end" font-size="12.5" font-weight="700" style="fill:var(--text-secondary);font-family:var(--font-text);">'+esc(d.label)+'</text>'+
+      '<text x="'+labelX+'" y="'+(ym + 12)+'" text-anchor="end" font-size="11" font-weight="600" style="fill:var(--text-tertiary);font-family:var(--font-text);">'+pct+'%</text>'+
+      '</g>';
+  }).join('');
+  return '<svg viewBox="0 0 '+W+' '+H+'" width="100%" style="display:block;max-width:440px;margin:0 auto;" role="img" aria-label="'+esc(data.map(function(d){ return d.label+': '+d.value; }).join(', '))+'">'+parts+'</svg>';
 }
 function svgBarChart(data, opts){
   // data: [{label, value, color}]
@@ -2011,12 +2004,9 @@ function renderPromotionDashboard(d){
     kpiCardV2('Not Eligible', notEligibleCount, icon('x',16), 'critical', 'Requires development', 'data-kpi-elig="Not Eligible"', activeEligFilter==='Not Eligible')+
     '</div>';
 
-  var funnelData = funnel.map(function(f,i){ return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--border)'][i]}; });
-  var funnelHtml = '<div class="card card-pad"><div class="section-title" style="font-size:15px;">Promotion funnel</div><div class="section-sub">From recommendation through system eligibility determination</div>'+
-    '<div style="display:flex;gap:12px;align-items:center;margin-top:6px;">'+
-    '<div style="flex:0 0 42%;">'+svgFunnelChart(funnelData,{height:170})+'</div>'+
-    '<div style="flex:1;min-width:0;">'+funnelLegendList(funnelData)+'</div>'+
-    '</div></div>';
+  var funnelData = funnel.map(function(f,i){ return {label:f.label, value:f.value, color:['var(--accent)','var(--special)','var(--success)','var(--border)'][i], textColor: i===3 ? 'var(--text-primary)' : null}; });
+  var funnelHtml = '<div class="card card-pad"><div class="section-title" style="font-size:15px;">Promotion funnel</div><div class="section-sub">From recommendation through system eligibility determination · % of the largest stage</div>'+
+    '<div style="margin-top:4px;">'+svgFunnelChart(funnelData)+'</div></div>';
 
   var readyN = d.readyAndEligibleCount;
   var topPractice = d.topPractice;
@@ -2043,7 +2033,7 @@ function renderPromotionDashboard(d){
     '<button class="btn btn-primary" id="promo-review-all-btn" style="width:100%;margin-top:14px;">Review All Candidates '+icon('arrowUpRight',13)+'</button>'+
     '</div>';
 
-  html += '<div class="grid-3" style="margin-top:16px;align-items:start;">'+funnelHtml+insightsHtml+readyHtml+'</div>';
+  html += '<div class="grid-promo" style="margin-top:16px;align-items:start;">'+funnelHtml+insightsHtml+readyHtml+'</div>';
 
   html += '<div style="margin-top:18px;" class="section-title">Promotion candidates</div><div class="section-sub">'+
     (searchQ ? d.candidatesTotal+' of '+d.candidatesBeforeSearch+' cases match "'+esc(searchQ)+'"' : d.candidatesTotal+' cases with a recommendation or a non-blocking eligibility status')+
