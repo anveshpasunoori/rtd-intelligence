@@ -25,7 +25,7 @@ services:
       PORT: 8080
       DATABASE_URL: postgres://rtd:${POSTGRES_PASSWORD}@db:5432/rtd
       JWT_SECRET: ${JWT_SECRET}
-      COOKIE_SECURE: ${COOKIE_SECURE:-true}
+      COOKIE_SECURE: ${COOKIE_SECURE:-auto}
       TRUST_PROXY: ${TRUST_PROXY:-false}
       SEED_DEMO_DATA: ${SEED_DEMO_DATA:-true}
     ports:

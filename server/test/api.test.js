@@ -57,6 +57,25 @@ test('auth: role changes and deleted accounts take effect on the next request', 
   assert.equal(r.status, 401);
 });
 
+test('auth: the session cookie is HTTPS-only only when the connection is (COOKIE_SECURE=auto)', async () => {
+  const flags = async (mode) => {
+    if (mode === undefined) delete process.env.COOKIE_SECURE; else process.env.COOKIE_SECURE = mode;
+    const c = new Client();
+    const r = await c.post('/api/auth/register', { email: `cookie-${mode}-${Date.now()}@example.test`, password: 'password-123' });
+    assert.equal(r.status, 201);
+    return r.headers.get('set-cookie');
+  };
+  try {
+    assert.doesNotMatch(await flags(undefined), /;\s*Secure/i, 'default (auto) over plain http: browsers would drop a Secure cookie');
+    assert.doesNotMatch(await flags('auto'), /;\s*Secure/i);
+    assert.match(await flags('true'), /;\s*Secure/i, 'true forces it');
+    assert.doesNotMatch(await flags('false'), /;\s*Secure/i);
+    assert.match(await flags('auto'), /HttpOnly/i);
+  } finally {
+    process.env.COOKIE_SECURE = 'false';
+  }
+});
+
 test('auth: a tampered session cookie is rejected', async () => {
   const c = new Client();
   c.cookie = admin.cookie.slice(0, -3) + 'abc';

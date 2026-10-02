@@ -46,8 +46,9 @@ Node both run inside containers this brings with it.
    - `JWT_SECRET` — generate with `openssl rand -base64 48`
    - `POSTGRES_PASSWORD` — generate with `openssl rand -base64 24`
    - `APP_PORT` — the port on this server the app should be reachable on (default 8080)
-   - `COOKIE_SECURE` — leave `true` unless this server is reachable *only* over plain http with no
-     TLS anywhere in front of it (see the comments in `.env.example`)
+   - `COOKIE_SECURE` — leave `auto`: the login cookie is HTTPS-only whenever the app is reached over
+     https (set `TRUST_PROXY=true` too if TLS ends at a proxy), and an ordinary cookie over plain http.
+     `true` forces HTTPS-only, which breaks sign-in on any plain-http address
    - `TRUST_PROXY` — set `true` if this sits behind an nginx/load-balancer that terminates TLS
 3. Build and start everything:
    ```

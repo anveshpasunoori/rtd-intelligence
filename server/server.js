@@ -21,7 +21,6 @@ const dashboardRoutes = require('./routes/dashboards');
 
 const PORT = process.env.PORT || 8080;
 const JWT_SECRET = process.env.JWT_SECRET;
-const COOKIE_SECURE = process.env.COOKIE_SECURE !== 'false'; // default true; set false only for plain-http intranet deployments
 const TRUST_PROXY = process.env.TRUST_PROXY === 'true';
 const SESSION_DAYS = parseInt(process.env.SESSION_DAYS || '30', 10);
 
@@ -58,10 +57,21 @@ function signSession(user) {
   return jwt.sign({ sub: user.id, email: user.email }, JWT_SECRET, { expiresIn: SESSION_DAYS + 'd' });
 }
 
-function setSessionCookie(res, token) {
+// Whether the session cookie is marked Secure (sent over HTTPS only). COOKIE_SECURE=auto (the
+// default) follows the connection: Secure over HTTPS — including behind a TLS-terminating proxy
+// when TRUST_PROXY=true — and not over plain http, where browsers would silently drop a Secure
+// cookie and the login would never stick. true/false force it either way.
+function cookieSecure(req) {
+  const mode = (process.env.COOKIE_SECURE || 'auto').toLowerCase();
+  if (mode === 'true') return true;
+  if (mode === 'false') return false;
+  return req.secure;
+}
+
+function setSessionCookie(req, res, token) {
   res.cookie('rtd_session', token, {
     httpOnly: true,
-    secure: COOKIE_SECURE,
+    secure: cookieSecure(req),
     sameSite: 'lax',
     maxAge: SESSION_DAYS * 24 * 60 * 60 * 1000,
     path: '/',
@@ -113,7 +123,7 @@ app.post('/api/auth/register', authLimiter, async (req, res) => {
       [email, hash]
     );
     const user = inserted.rows[0];
-    setSessionCookie(res, signSession(user));
+    setSessionCookie(req, res, signSession(user));
     res.status(201).json({ ok: true, email: user.email, role: user.role });
   } catch (err) {
     console.error('register error', err);
@@ -134,7 +144,7 @@ app.post('/api/auth/login', authLimiter, async (req, res) => {
     const matches = await bcrypt.compare(password, hashToCheck);
     if (!user || !matches) return res.status(401).json({ error: 'Invalid email or password.' });
 
-    setSessionCookie(res, signSession(user));
+    setSessionCookie(req, res, signSession(user));
     res.json({ ok: true, email: user.email, role: user.role });
   } catch (err) {
     console.error('login error', err);

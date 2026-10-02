@@ -90,8 +90,10 @@ Data lives only in that machine's database — `git` carries the code, not the d
 
 ## Troubleshooting
 
-- **Login doesn't stick** — if you open the app from another computer over plain `http://`
-  (not `localhost`), set `COOKIE_SECURE=false` in `.env`, then `docker compose up -d`.
+- **Sign-in goes back to the login page** — your `.env` probably has `COOKIE_SECURE=true` (older
+  setups did): the server then marks its login cookie HTTPS-only, and browsers throw it away on a
+  plain `http://` page (Safari even on `localhost`). Set `COOKIE_SECURE=auto` in `server/.env`, then
+  `docker compose up -d`.
 - **Port 8080 is already in use** — set `APP_PORT=8081` (or any free port) in `.env`, then
   `docker compose up -d` and use that port in the browser.
 - **`docker compose up` fails with a password error** — `.env` is missing or its

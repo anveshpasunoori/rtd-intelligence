@@ -4315,6 +4315,7 @@ function wireAuthForms(){
     }).then(function(r){
       if (!r.ok){ errEl.textContent = r.body.error || 'Login failed — check your email and password.'; return; }
       SESSION_EXPIRED = false;
+      JUST_SIGNED_IN = true;
       boot();
     }).catch(function(){ errEl.textContent = 'Could not reach the server. Check your connection.'; });
   });
@@ -4336,14 +4337,25 @@ function wireAuthForms(){
     }).then(function(r){
       if (!r.ok){ errEl.textContent = r.body.error || 'Could not create that account.'; return; }
       SESSION_EXPIRED = false;
+      JUST_SIGNED_IN = true;
       boot();
     }).catch(function(){ errEl.textContent = 'Could not reach the server. Check your connection.'; });
   });
 }
 var HASH_LISTENER_BOUND = false;
+// Set when the server has just accepted a sign-in. If the very next "who am I" check still finds no
+// session, the browser dropped the session cookie (typically: the server marks it HTTPS-only but the
+// app is opened over plain http) — say so instead of silently showing the login form again.
+var JUST_SIGNED_IN = false;
 function boot(){
   fetch('/api/auth/me', { credentials: 'include' }).then(function(meResp){
-    if (!meResp.ok){ showAuthGate(); return null; }
+    var justSignedIn = JUST_SIGNED_IN;
+    JUST_SIGNED_IN = false;
+    if (!meResp.ok){
+      showAuthGate(justSignedIn ? 'Your password was accepted, but this browser didn\'t keep the sign-in. '+
+        (location.protocol === 'http:' ? 'The server is marking its login cookie as HTTPS-only while this page is plain http. Ask whoever runs the server to set COOKIE_SECURE=auto in server/.env (or open the app over https).' : 'Check that cookies are allowed for this site.') : '');
+      return null;
+    }
     return meResp.json().then(function(me){
       SESSION_EMAIL = me.email;
       PREFS.role = me.role === 'HR Admin' ? 'HR Admin' : 'RTD Reviewer';
